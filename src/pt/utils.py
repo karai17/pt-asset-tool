@@ -109,7 +109,7 @@ def get_rotation(x: int, y: int, z: int) -> PTRotation:
 	"""
 		Convert Priston Tale's 4096 unit angles to a quaternion.
 
-		Reference: smgeosub.cpp:720::GetRadian2D
+		Reference: smgeosub.cpp::GetRadian2D
 	"""
 
 	rx = get_radians(x)

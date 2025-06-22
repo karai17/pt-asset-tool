@@ -13,7 +13,7 @@ from pt.const import (
 )
 
 
-# Reference: fileread.cpp::MotionKeyWordDecode()
+# Reference: fileread.cpp::MotionKeyWordDecode
 def decode_motion(sm_motioninfo):
 	sm_motioninfo.StartFrame = ((sm_motioninfo.StartFrame & int.from_bytes(b"\x00\x00\x00\xff")) << 24) | (sm_motioninfo.StartFrame & int.from_bytes(b"\x00\xff\x00\x00")) | ((sm_motioninfo.MotionKeyWord_1 & int.from_bytes(b"\x00\xff\x00\x00")) >> 8) | (sm_motioninfo.MotionKeyWord_1 & int.from_bytes(b"\x00\x00\x00\xff"))
 	sm_motioninfo.MotionKeyWord_1 = 0

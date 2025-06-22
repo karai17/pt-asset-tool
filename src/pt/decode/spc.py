@@ -20,7 +20,7 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 	future server developers want to create extra large stages with many more
 	NPCs.
 
-	Reference: onserver.h:123::FIX_CHAR_MAX
+	Reference: onserver.h::FIX_CHAR_MAX
 	"""
 
 	sm_buffer = BufferReader(path)

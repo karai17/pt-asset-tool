@@ -25,7 +25,7 @@ By default, if you run this application it will not produce results. You need to
 ```
 
 ```sh
-poetry run python -u -m app.main -mtpg
+poetry run python -u -m app.main -i "~/Games/Priston Tale" -o ~/Games/PT_decoded -mtpg
 ```
 
 ## Features

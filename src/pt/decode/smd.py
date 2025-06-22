@@ -67,7 +67,7 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 		sm_vertex = sm_modelbuffer.read(smSTAGE_VERTEX)
 
 		# swap Y and Z
-		# Reference: smRead3d.cpp:smSTAGE3D_ReadASE_GEOMOBJECT()
+		# Reference: smRead3d.cpp::smSTAGE3D_ReadASE_GEOMOBJECT
 		vertices.append(PTObjectVertex(
 			x = sm_vertex.x / 256,
 			y = sm_vertex.z / 256,

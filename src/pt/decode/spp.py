@@ -19,7 +19,7 @@ def decode(path: str) -> list[PTServerSpawnPoint]:
 	future server developers want to create extra large stages with many more
 	spawn points.
 
-	Reference: onserver.h:75::STG_START_POINT_MAX
+	Reference: onserver.h::STG_START_POINT_MAX
 	"""
 
 	sm_buffer = BufferReader(path)

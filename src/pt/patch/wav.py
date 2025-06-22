@@ -7,7 +7,7 @@ def patch(path: str):
 	Priston Tale mangles the Waveform file header by replacing the four byte
 	signature string `RIFF` with `JODO`.
 
-	Reference: Dxwav.h::WaveHeader0, 1, 2
+	Reference: Dxwav.h::WaveHeader0, WaveHeader1, WaveHeader2
 	"""
 
 	buffer = BufferReader(path)

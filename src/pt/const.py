@@ -272,7 +272,7 @@ TXT.szNextFile                     = b"*\xbf\xac\xb0\xe1\xc6\xc4\xc0\xcf" # szNe
 
 
 
-# Reference: character.h:888
+# Reference: character.h::CHRMOTION_EXT
 CHRMOTION = {
 	int.from_bytes(b"\x00\x01"): "hvPOSI_RHAND",
 	int.from_bytes(b"\x00\x02"): "hvPOSI_LHAND",
