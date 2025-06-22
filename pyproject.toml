@@ -1,0 +1,28 @@
+[project]
+name = "pt-asset-tool"
+version = "0.1.0"
+description = ""
+license = { text = "MIT" }
+authors = [
+    { name = "Landon Manning", email = "lmanning17@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pillow (>=11.2.1,<12.0.0)",
+    "pygltflib (>=1.16.4,<2.0.0)",
+    "numpy (>=2.3.0,<3.0.0)",
+]
+
+[tool.poetry]
+packages = [
+    { include = "pt", from = "src" },
+    { include = "app", from = "src" }
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
