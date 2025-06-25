@@ -1,5 +1,6 @@
 import os
 
+from collections.abc import Callable
 from pathlib import Path
 
 from pt.pdef import *
@@ -9,7 +10,7 @@ from pt.encode import json
 from app.utils import ftime, now
 
 
-def _decode(bucket: list[str], indir: str, decode_func) -> tuple[dict[str, list], list[str]]:
+def _decode(bucket: list[str], indir: str, decode: Callable[[str], list]) -> tuple[dict[str, list], list[str]]:
 	data = {}
 	stages = []
 
@@ -20,48 +21,43 @@ def _decode(bucket: list[str], indir: str, decode_func) -> tuple[dict[str, list]
 		stages.append(root.casefold())
 
 		inpath = os.path.join(indir, filepath)
-		data[stages[-1]] = decode_func(inpath)
+		data[stages[-1]] = decode(inpath)
 
 	return data, stages
 
 
 def decode_spc(bucket: list[str], indir: str) -> tuple[dict[str, list[PTServerSpawnCharacter]], list[str]]:
-	""" Decode SPC character spawn files. """
-
+	"""Decode SPC character spawn files."""
 	print(f"Decoding {len(bucket)} SPC files...")
 	t0 = now()
 	data, stages = _decode(bucket, indir, spc.decode)
 	t1 = now()
 	print(f"Decoded SPC files in {ftime(t0, t1)} seconds.")
-
 	return data, stages
 
 
 def decode_spm(bucket: list[str], indir: str) -> tuple[dict[str, PTServerSpawnMonster], list[str]]:
-	""" Decode SPM monster spawn config files. """
-
+	"""Decode SPM monster spawn config files."""
 	print(f"Decoding {len(bucket)} SPM files...")
 	t0 = now()
 	data, stages = _decode(bucket, indir, spm.decode)
 	t1 = now()
 	print(f"Decoded SPM files in {ftime(t0, t1)} seconds.")
-
 	return data, stages
 
 
 def decode_spp(bucket: list[str], indir: str) -> tuple[dict[str, list[PTServerSpawnPoint]], list[str]]:
-	""" Decode SPP spawn point files. """
-
+	"""Decode SPP spawn point files."""
 	print(f"Decoding {len(bucket)} SPP files...")
 	t0 = now()
 	data, stages = _decode(bucket, indir, spp.decode)
 	t1 = now()
 	print(f"Decoded SPP files in {ftime(t0, t1)} seconds.")
-
 	return data, stages
 
 
-def decode_stages(spcbucket: list[str], spmbucket: list[str], sppbucket: list[str], indir: str, outdir: str):
+def decode_stages(spcbucket: list[str], spmbucket: list[str], sppbucket: list[str], indir: str, outdir: str) -> None:
+		"""Decode server data for all stages and export to JSON file."""
 		server = PTServerStages()
 
 		# get data from stages

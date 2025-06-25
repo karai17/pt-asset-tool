@@ -7,8 +7,7 @@ from pt.const import (
 
 
 def decode(path: str) -> PTServerItem:
-	""" Decode a TXT file which consists of item definition data. """
-
+	"""Decode a TXT file which consists of item definition data."""
 	item = PTServerItem()
 
 	with open(path, "rb") as f:

@@ -22,8 +22,7 @@ def decode_motion(sm_motioninfo):
 
 
 def decode(path: str) -> PTActorModel | PTStageModel | None:
-	""" Import an INX file as the entry point of loading a 3D model. """
-
+	"""Import an INX file as the entry point of loading a 3D model."""
 	sm_buffer = BufferReader(path)
 	size = len(sm_buffer.data)
 

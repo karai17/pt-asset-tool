@@ -7,8 +7,7 @@ from pt.const import (
 
 
 def decode(path: str) -> PTServerMonster:
-	""" Decode an INF file which consists of monster definition data. """
-
+	"""Decode an INF file which consists of monster definition data."""
 	monster = PTServerMonster()
 
 	with open(path, "rb") as f:

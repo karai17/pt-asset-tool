@@ -2,6 +2,7 @@ import base64
 import numpy as np
 import os
 
+from argparse import Namespace
 from ctypes import *
 from dataclasses import asdict
 from pathlib import Path
@@ -39,10 +40,10 @@ from pt.utils import (
 	to_np_vector,
 	from_np_vector,
 	trs_to_np_matrix,
-	matrix_to_rotation,
+	matrix_to_quaternion,
 	get_filename,
-	get_face_normal,
-	multiply_rotations,
+	normalize_face,
+	multiply_quaternions,
 	vector_lerp
 )
 
@@ -51,7 +52,8 @@ from pt.utils import (
 
 
 # loop through list of key frames and fill in any frame gaps with new key frames
-def fill_animation_frames(transform: PTActorAnimation):
+def fill_animation_frames(transform: PTActorAnimation) -> None:
+	"""Fill in animation frames between key frames."""
 	if len(transform.rotation) > 0:
 		new_frames = []
 		ptfm = None
@@ -121,12 +123,13 @@ def fill_animation_frames(transform: PTActorAnimation):
 # this function is a little clunky because of the variances between the different transforms.
 # however, the transforms are similar enough that the majority of the code is duplicate for each.
 def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | list[PTAnimationRotation] | list[PTAnimationScale], name: str, has_bones: bool = False, animations: list[PTModelMetadata] | None = None) -> PTAnimationSampler:
+	"""Get the animation sampler per transform, per animation."""
 	rot = name == "rotation"
 	pos = name == "position"
 	scl = name == "scale"
 
 	if len(transforms) > 0:
-		orot = PTRotation()
+		orot = PTQuaternion()
 
 		input_buffer = BufferReader(len(transforms)*4)
 
@@ -137,7 +140,7 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 
 		for transform in transforms:
 			if rot:
-				orot = multiply_rotations(orot, transform)
+				orot = multiply_quaternions(orot, transform)
 
 			# reset each animation's starting frame time to 0
 			sframe = 0
@@ -206,7 +209,8 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 		)
 
 
-def process_animation_transform(gltf: GLTF2, transform: list, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata):
+def process_animation_transform(gltf: GLTF2, transform: list, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata) -> None:
+	"""Process animation transforms."""
 	rot = name == "rotation"
 	pos = name == "translation"
 	scl = name == "scale"
@@ -278,7 +282,8 @@ def process_animation_transform(gltf: GLTF2, transform: list, name: str, gltf_an
 		))
 
 
-def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node: int, track, animation: PTMotionMetadata | None = None):
+def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node: int, track, animation: PTMotionMetadata | None = None) -> None:
+	"""Process an animation."""
 	# NOTE: death animation has 8 more frames than listed in the inx file (for some reason)
 	# This may not need to be added back for GLTF, but may be required for ASE.
 	# Reference: fileread.cpp::AddModelDecode (Line ~420)
@@ -311,7 +316,8 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 """ PRIMITIVES """
 
 
-def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
+def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) -> list[dict[str,]]:
+	"""Create a list of untangled primitives."""
 	prims = []
 	if not object.texture_coords or not object.vertices or not object.faces:
 		return prims
@@ -343,13 +349,13 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
 				v = object.vertices[face.vertices[j]]
 
 				if hasattr(object, "physique") and object.physique:
-					vertex = PTObjectVertex(
+					vertex = PTVector3(
 						x =  v.x * SCALE_INCH_TO_METER,
 						y =  v.z * SCALE_INCH_TO_METER,
 						z = -v.y * SCALE_INCH_TO_METER
 					)
 				else:
-					vertex = PTObjectVertex(
+					vertex = PTVector3(
 						x = -v.x * SCALE_INCH_TO_METER,
 						y =  v.z * SCALE_INCH_TO_METER,
 						z =  v.y * SCALE_INCH_TO_METER
@@ -357,13 +363,13 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
 				vertices.append(vertex)
 
 				if not prim.get("min") or not prim.get("max"):
-					prim["min"] = PTObjectVertex(
+					prim["min"] = PTVector3(
 						x = vertex.x,
 						y = vertex.y,
 						z = vertex.z
 					)
 
-					prim["max"] = PTObjectVertex(
+					prim["max"] = PTVector3(
 						x = vertex.x,
 						y = vertex.y,
 						z = vertex.z
@@ -377,7 +383,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
 
 			# NORMAL
 			v1, v2, v3 = vertices
-			normal = get_face_normal(v1, v2, v3)
+			normal = normalize_face(v1, v2, v3)
 			# TODO: zero length normals suggests that there are degenerate triangles
 			# that need to be purged at some point.
 
@@ -418,10 +424,10 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
 				prim["weights0buffer"] = None
 
 		if not prim["min"]:
-			prim["min"] = PTObjectVertex()
+			prim["min"] = PTVector3()
 
 		if not prim["max"]:
-			prim["max"] = PTObjectVertex()
+			prim["max"] = PTVector3()
 
 		if prim["count"] > 0:
 			prims.append(prim)
@@ -432,9 +438,8 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]):
 """ GLTF """
 
 
-def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
-	""" Exports the interal model structure to a GLTF file. """
-
+def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> None:
+	"""Encodes the interal model structure to a GLTF file and writes it to disk."""
 	# invalid model data
 	if not model.materials and not model.objects:
 		print(f"Model '{model.filename}' does not contain any data.")
@@ -481,20 +486,20 @@ def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
 			# NOTE: we are swapping Y and Z axes, but also negating Z for some reason
 			# that I do not recall. Will update this note if/when I remember. May just
 			# be a difference between the source data and glTF's expectations.
-			position = PTPosition(
+			position = PTVector3(
 				x =  t.position.x * SCALE_INCH_TO_METER,
 				y =  t.position.z * SCALE_INCH_TO_METER,
 				z = -t.position.y * SCALE_INCH_TO_METER
 			)
 
-			rotation = PTRotation(
+			rotation = PTQuaternion(
 				x =  t.rotation.x,
 				y =  t.rotation.z,
 				z = -t.rotation.y,
 				w =  t.rotation.w
 			)
 
-			scale =  PTScale(
+			scale =  PTVector3(
 				x = t.scale.x,
 				y = t.scale.z,
 				z = t.scale.y
@@ -574,7 +579,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
 			if material.texture_map.diffuse_path:
 				root, ext = get_filename(material.texture_map.diffuse_path)
 
-				if encode_png:
+				if args.png:
 					uri = (root + ".png").lower()
 				else:
 					uri = root + ext
@@ -598,7 +603,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
 			if material.texture_map.selfillum_path:
 				root, ext = get_filename(material.texture_map.selfillum_path)
 
-				if encode_png:
+				if args.png:
 					uri = (root + ".png").lower()
 				else:
 					uri = root + ext
@@ -622,7 +627,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
 				mtl.alphaMode = "BLEND"
 				root, ext = get_filename(material.texture_map.opacity_path)
 
-				if encode_png:
+				if args.png:
 					uri = (root + ".png").lower()
 				else:
 					uri = root + ext
@@ -651,19 +656,19 @@ def encode(path: Path, model: PTActorModel | PTStageModel, encode_png: bool):
 		m = object.transform
 
 		# swap Y and Z (smStgObj.cpp:82)
-		position = PTPosition(
+		position = PTVector3(
 			x = -m._41 * SCALE_INCH_TO_METER,
 			y =  m._43 * SCALE_INCH_TO_METER,
 			z =  m._42 * SCALE_INCH_TO_METER
 		)
 
 		# Priston Tale stores but does not use the transform scale
-		scale = PTScale()
-		rotation = PTRotation()
+		scale = PTVector3()
+		rotation = PTQuaternion()
 
 		if hasattr(object, "transform_rotate"):
-			q = matrix_to_rotation(object.transform_rotate)
-			rotation	= PTRotation(
+			q = matrix_to_quaternion(object.transform_rotate)
+			rotation	= PTQuaternion(
 				x = -q.x,
 				y =  q.z,
 				z =  q.y,

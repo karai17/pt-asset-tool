@@ -2,20 +2,20 @@ import struct
 from pt.buffer import BufferReader
 
 
-def u8(n: int):
+def u8(n: int) -> int:
+	"""Unsigned Byte"""
 	return n % 256
 
 
-def patch(path: str):
+def patch(path: str) -> bytes:
 	"""
 	Priston Tale mangles the whole 18 byte Targa file header by using a counter
 	and a simple key product to add a junk value to each byte in the header.
 
 	We need to perform the same operation, instead negating the junk value.
 
-	Reference: smTexture.cpp::cTGA::LoadTga
+	Reference: `smTexture.cpp::cTGA::LoadTga`
 	"""
-
 	buffer = BufferReader(path)
 
 	id = bytes(buffer.data[0:1]).decode("ascii")

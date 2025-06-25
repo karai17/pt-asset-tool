@@ -1,8 +1,13 @@
 from ctypes import *
+from typing import TypeVar
+
+
+CType = TypeVar("CType")
 
 
 class BufferReader:
-	def __init__(self, path: str | int):
+	"""Read a file as a bytearray to be read from and written to."""
+	def __init__(self, path: str | int) -> None:
 		if type(path) == str:
 			with open(path, "rb") as f:
 				data = bytearray(f.read())
@@ -15,7 +20,11 @@ class BufferReader:
 		self.offset = 0
 
 
-	def read(self, struct_type):
+	def read(self, struct_type: type[CType]) -> CType:
+		"""
+		Read from the bytearray at the current offset location. Progresses the
+		offset location forward by the size of the read.
+		"""
 		if not hasattr(struct_type, "_fields_") and not hasattr(struct_type, "_length_"):
 			struct_type = struct_type * 1
 
@@ -33,7 +42,11 @@ class BufferReader:
 		return struct
 
 
-	def write(self, struct_data):
+	def write(self, struct_data: CType) -> None:
+		"""
+		Write to the bytearray at the current offset location. Progresses the
+		offset location forward by the size of the write.
+		"""
 		try:
 			size = sizeof(struct_data)
 		except Exception as e:
@@ -47,13 +60,16 @@ class BufferReader:
 		self.offset += size
 
 
-	def seek(self, new_offset: int):
+	def seek(self, new_offset: int) -> None:
+		"""Progress the offset to a new location."""
 		self.offset = new_offset
 
 
-	def tell(self):
+	def tell(self) -> int:
+		"""Current offset location."""
 		return self.offset
 
 
-	def get_data(self):
+	def get_data(self) -> bytes:
+		"""Get bytearray data as immutable bytes."""
 		return bytes(self.data)

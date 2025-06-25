@@ -1,5 +1,6 @@
 import os
 
+from argparse import Namespace
 from pathlib import Path
 
 from pt.patch import bmp, tga, wav
@@ -10,8 +11,8 @@ from pt.encode import png
 from app.utils import ftime, now
 
 
-def _encode(outpath: str, fdata, encode_png: bool):
-	if encode_png:
+def _encode(outpath: str, fdata: bytes, args: Namespace) -> None:
+	if args.png:
 		segments = outpath.split(os.path.sep)
 		root, ext = os.path.splitext(segments[-1])
 		segments[-1] = (root + ".png").lower()
@@ -24,48 +25,44 @@ def _encode(outpath: str, fdata, encode_png: bool):
 			f.write(fdata)
 
 
-def patch_bmp(bucket: list, indir: str, outdir: str, encode_png: bool):
-	""" Patch all of the BMP files. """
-
+def patch_bmp(bucket: list, args: Namespace) -> None:
+	"""Patch all of the BMP files."""
 	print(f"Patching {len(bucket)} BMP files...")
 	t0 = now()
 
 	for filepath in bucket:
-		inpath = os.path.join(indir, filepath)
-		outpath = os.path.join(outdir, filepath)
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
 		fdata = bmp.patch(inpath)
-		_encode(outpath, fdata, encode_png)
+		_encode(outpath, fdata, args)
 
 	t1 = now()
 	print(f"Patched BMP files in {ftime(t0, t1)} seconds.")
 
 
-def patch_tga(bucket: list, indir: str, outdir: str, encode_png: bool):
-	""" Patch all of the TGA files. """
-
+def patch_tga(bucket: list, args: Namespace) -> None:
+	"""Patch all of the TGA files."""
 	print(f"Patching {len(bucket)} TGA files...")
 	t0 = now()
 
 	for filepath in bucket:
-		inpath = os.path.join(indir, filepath)
-		outpath = os.path.join(outdir, filepath)
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
 		fdata = tga.patch(inpath)
-		_encode(outpath, fdata, encode_png)
+		_encode(outpath, fdata, args)
 
 	t1 = now()
 	print(f"Patched TGA files in {ftime(t0, t1)} seconds.")
 
 
-def patch_wav(bucket: list, indir: str, outdir: str):
-	""" Patch all of the WAV files. """
-
+def patch_wav(bucket: list, args: Namespace) -> None:
+	"""Patch all of the WAV files."""
 	print(f"Patching {len(bucket)} WAV files...")
 	t0 = now()
 
 	for filepath in bucket:
-		inpath = os.path.join(indir, filepath)
-		outpath = os.path.join(outdir, filepath)
-
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
 		fdata = wav.patch(inpath)
 
 		root, ext = os.path.splitext(outpath)
@@ -78,36 +75,36 @@ def patch_wav(bucket: list, indir: str, outdir: str):
 	print(f"Patched WAV files in {ftime(t0, t1)} seconds.")
 
 
-def decode_inx(bucket: list, indir: str, outdir: str, encode_json: bool, encode_gltf: bool, encode_png: bool):
-	""" Decode INX config files. """
-
+def decode_inx(bucket: list, args: Namespace) -> None:
+	"""Decode INX config files."""
 	print(f"Decoding {len(bucket)} INX files...")
 	t0 = now()
 
 	for filepath in bucket:
-		inpath = os.path.join(indir, filepath)
-		outpath = os.path.join(outdir, filepath)
-
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
 		fdata = inx.decode(inpath)
 
-		if encode_json:
+		if args.json:
 			root, ext = os.path.splitext(outpath)
 			jsonpath = Path(root + ".json")
 			json.encode(jsonpath, fdata)
 
-		if encode_gltf:
+		if args.gltf:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
-			gltf.encode(gltfpath, fdata, encode_png)
+			gltf.encode(gltfpath, fdata, args)
 
 	t1 = now()
 	print(f"Decoded INX files in {ftime(t0, t1)} seconds.")
 
 
-def decode_smd(smdbucket: list, inxbucket: list, indir: str, outdir: str, encode_json: bool, encode_gltf: bool, encode_png: bool):
-	""" Decode SMD model files. """
-
+def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
+	"""Decode SMD model files."""
 	bucket = []
+
+	# FIXME: instead of the name of the inx file we need to check the name of the
+	# smd file that the inx file points to!
 
 	for smdpath in smdbucket:
 		found = False
@@ -125,20 +122,19 @@ def decode_smd(smdbucket: list, inxbucket: list, indir: str, outdir: str, encode
 	t0 = now()
 
 	for filepath in bucket:
-		inpath = os.path.join(indir, filepath)
-		outpath = os.path.join(outdir, filepath)
-
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
 		fdata = smd.decode(inpath)
 
-		if encode_json:
+		if args.json:
 			root, ext = os.path.splitext(outpath)
 			jsonpath = Path(root + ".json")
 			json.encode(jsonpath, fdata)
 
-		if encode_gltf:
+		if args.gltf:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
-			gltf.encode(gltfpath, fdata, encode_png)
+			gltf.encode(gltfpath, fdata, args)
 
 	t1 = now()
 	print(f"Decoded SMD files in {ftime(t0, t1)} seconds.")

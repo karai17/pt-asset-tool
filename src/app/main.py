@@ -10,14 +10,11 @@ buckets = {
 	# texture
 	".bmp": [],
 	".tga": [],
-
 	# audio
 	".wav": [],
-
 	# model
 	".inx": [],
 	".smd": [],
-
 	# server
 	".spc": [],
 	".spm": [],
@@ -65,15 +62,15 @@ if __name__ == "__main__":
 				buckets[".wav"].append(filepath)
 
 	if args.texture:
-		patch_bmp(buckets[".bmp"], args.input, args.output, args.png)
-		patch_tga(buckets[".tga"], args.input, args.output, args.png)
+		patch_bmp(buckets[".bmp"], args)
+		patch_tga(buckets[".tga"], args)
 
 	if args.audio:
-		patch_wav(buckets[".wav"], args.input, args.output)
+		patch_wav(buckets[".wav"], args)
 
 	if args.model:
-		decode_inx(buckets[".inx"], args.input, args.output, args.json, args.gltf, args.png)
-		decode_smd(buckets[".smd"], buckets[".inx"], args.input, args.output, args.json, args.gltf, args.png)
+		decode_inx(buckets[".inx"], args)
+		decode_smd(buckets[".smd"], buckets[".inx"], args)
 
 	if args.server:
-		decode_stages(buckets[".spc"], buckets[".spm"], buckets[".spp"], args.input, args.output)
+		decode_stages(buckets[".spc"], buckets[".spm"], buckets[".spp"], args)

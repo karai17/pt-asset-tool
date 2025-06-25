@@ -2,17 +2,14 @@ import struct
 from pt.buffer import BufferReader
 
 
-def patch(path: str):
+def patch(path: str) -> bytes:
 	"""
 	Priston Tale mangles the whole 14 byte Bitmap file header in an unknown way.
-
 	The two byte signature string is always mangled by replacing `BM` with `A8`.
-
 	Luckily, constructing a new file header is pretty simple.
 
-	Reference: smTexture.cpp::LoadDib
+	Reference: `smTexture.cpp::LoadDib`
 	"""
-
 	buffer = BufferReader(path)
 	id = buffer.data[0:2].decode("ascii")
 

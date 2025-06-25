@@ -19,9 +19,8 @@ def decode(path: str) -> list[PTServerSpawnPoint]:
 	future server developers want to create extra large stages with many more
 	spawn points.
 
-	Reference: onserver.h::STG_START_POINT_MAX
+	Reference: `onserver.h::STG_START_POINT_MAX`
 	"""
-
 	sm_buffer = BufferReader(path)
 	filesize = len(sm_buffer.data)
 	num_points = int(filesize / sizeof(STG_START_POINT))
@@ -33,7 +32,7 @@ def decode(path: str) -> list[PTServerSpawnPoint]:
 		if sm_point.state + sm_point.x + sm_point.z != 0:
 			points.append(PTServerSpawnPoint(
 				active = True if sm_point.state == 1 else False,
-				position = PTPosition(
+				position = PTVector3(
 					x = sm_point.x * SCALE_INCH_TO_METER,
 					y = 0, # y value determined via raycast
 					z = sm_point.z * SCALE_INCH_TO_METER

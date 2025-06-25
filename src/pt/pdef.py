@@ -2,11 +2,44 @@ from dataclasses import dataclass, field
 from pt.const import VERSION
 
 
+""" Generics """
+
+
+@dataclass
+class PTVector3:
+	x: float = 0
+	y: float = 0
+	z: float = 0
+
+
+@dataclass
+class PTVector3Int:
+	x: int = 0
+	y: int = 0
+	z: int = 0
+
+
+@dataclass
+class PTQuaternion:
+	x: float = 0
+	y: float = 0
+	z: float = 0
+	w: float = 1
+
+
+@dataclass
+class PTMat4:
+	_11: float = 1; _12: float = 0; _13: float = 0; _14: float = 0
+	_21: float = 0; _22: float = 1; _23: float = 0; _24: float = 0
+	_31: float = 0; _32: float = 0; _33: float = 1; _34: float = 0
+	_41: float = 0; _42: float = 0; _43: float = 0; _44: float = 1
+
+
 """ Metadata """
 
 
 @dataclass
-class PTMotionMetadata():
+class PTMotionMetadata:
 	name: str = None
 	start_frame: int = 0
 	end_frame: int = 0
@@ -15,7 +48,7 @@ class PTMotionMetadata():
 
 
 @dataclass
-class PTModelMetadata():
+class PTModelMetadata:
 	model_names: list[str] = field(default_factory=list)
 	animations: list[PTMotionMetadata] = field(default_factory=list)
 
@@ -24,7 +57,7 @@ class PTModelMetadata():
 
 
 @dataclass
-class PTTextureMap():
+class PTTextureMap:
 	diffuse_name: str = None
 	diffuse_path: str = None
 	selfillum_name: str = None
@@ -34,7 +67,7 @@ class PTTextureMap():
 
 
 @dataclass
-class PTTextureVertex():
+class PTTextureVertex:
 	u: float = 0
 	v: float = 0
 
@@ -43,14 +76,7 @@ class PTTextureVertex():
 
 
 @dataclass
-class PTObjectVertex():
-	x: float = 0
-	y: float = 0
-	z: float = 0
-
-
-@dataclass
-class PTObjectVertexColor():
+class PTColorVertex:
 	r: float = 0
 	g: float = 0
 	b: float = 0
@@ -58,13 +84,13 @@ class PTObjectVertexColor():
 
 
 @dataclass
-class PTObjectFace():
+class PTObjectFace:
 	vertices: list[int] = field(default_factory=list)
 	material_id: int = None
 
 
 @dataclass
-class PTObjectTexture_Coord():
+class PTObjectTexture_Coord:
 	face: PTObjectFace = field(default_factory=PTObjectFace)
 	vertices: list[PTTextureVertex] = field(default_factory=list)
 
@@ -73,14 +99,14 @@ class PTObjectTexture_Coord():
 
 
 @dataclass
-class PTModelScene():
+class PTModelScene:
 	ticks_per_frame: int = 160
 	frame_speed: int = 30
 	last_frame: int = 100
 
 
 @dataclass
-class PTModelMaterial():
+class PTModelMaterial:
 	name: str = None
 	num_textures: int = 0
 	ambient: list[float] = field(default_factory=list)
@@ -98,75 +124,38 @@ class PTModelMaterial():
 
 
 @dataclass
-class PTPosition():
-	x: float = 0
-	y: float = 0
-	z: float = 0
-
-
-@dataclass
-class PTRotation():
-	x: float = 0
-	y: float = 0
-	z: float = 0
-	w: float = 1
-
-
-@dataclass
-class PTScale():
-	x: float = 1
-	y: float = 1
-	z: float = 1
-
-
-@dataclass
-class PTScaleInt():
-	x: int = 1
-	y: int = 1
-	z: int = 1
-
-
-@dataclass
-class PTObjectMatrix():
-	_11: float = 1; _12: float = 0; _13: float = 0; _14: float = 0
-	_21: float = 0; _22: float = 1; _23: float = 0; _24: float = 0
-	_31: float = 0; _32: float = 0; _33: float = 1; _34: float = 0
-	_41: float = 0; _42: float = 0; _43: float = 0; _44: float = 1
-
-
-@dataclass
-class PTObjectTransform(PTObjectMatrix):
-	position: PTPosition = field(default_factory=PTPosition)
-	rotation: PTRotation = field(default_factory=PTRotation)
-	scale: PTScale = field(default_factory=PTScale)
+class PTObjectTransform(PTMat4):
+	position: PTVector3 = field(default_factory=PTVector3)
+	rotation: PTQuaternion = field(default_factory=PTQuaternion)
+	scale: PTVector3 = field(default_factory=PTVector3)
 
 
 """ Animation """
 
 
 @dataclass
-class PTAnimationPosition(PTPosition):
+class PTAnimationPosition(PTVector3):
 	frame: int = 0
 
 
 @dataclass
-class PTAnimationRotation(PTRotation):
+class PTAnimationRotation(PTQuaternion):
 	frame: int = 0
 
 
 @dataclass
-class PTAnimationScale(PTScale):
+class PTAnimationScale(PTVector3):
 	frame: int = 0
 
 
 @dataclass
-class PTAnimationSampler():
+class PTAnimationSampler:
 	input: int = None
 	output: int = None
 
 
 @dataclass
-class PTAnimationTrack():
+class PTAnimationTrack:
 	position: PTAnimationSampler = field(default_factory=PTAnimationSampler)
 	rotation: PTAnimationSampler = field(default_factory=PTAnimationSampler)
 	scale: PTAnimationSampler = field(default_factory=PTAnimationSampler)
@@ -176,7 +165,7 @@ class PTAnimationTrack():
 
 
 @dataclass
-class PTStageObject():
+class PTStageObject:
 	name: str = None
 	num_vertices: int = 0
 	num_faces: int = 0
@@ -184,15 +173,15 @@ class PTStageObject():
 	num_tfm_rotations: int = 0
 	num_tfm_positions: int = 0
 	num_tfm_scales: int = 0
-	vertices: list[PTObjectVertex] = field(default_factory=list)
-	vertex_colors: list[PTObjectVertexColor] = field(default_factory=list)
+	vertices: list[PTVector3] = field(default_factory=list)
+	vertex_colors: list[PTColorVertex] = field(default_factory=list)
 	faces: list[PTObjectFace] = field(default_factory=list)
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
 
 
 @dataclass
-class PTStageModel():
+class PTStageModel:
 	filename: str = None
 	version: str = VERSION
 	scene: PTModelScene = field(default_factory=PTModelScene)
@@ -204,14 +193,14 @@ class PTStageModel():
 
 
 @dataclass
-class PTActorAnimation():
+class PTActorAnimation:
 	rotation: list[PTAnimationRotation] = field(default_factory=list)
 	position: list[PTAnimationPosition] = field(default_factory=list)
 	scale: list[PTAnimationScale] = field(default_factory=list)
 
 
 @dataclass
-class PTActorObject():
+class PTActorObject:
 	parent: str = None
 	name: str = None
 	num_vertices: int = 0
@@ -220,17 +209,17 @@ class PTActorObject():
 	num_tfm_positions: int = 0
 	num_tfm_rotations: int = 0
 	num_tfm_scales: int = 0
-	vertices: list[PTObjectVertex] = field(default_factory=list)
+	vertices: list[PTVector3] = field(default_factory=list)
 	faces: list[PTObjectFace] = field(default_factory=list)
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
-	transform_rotate: PTObjectMatrix = field(default_factory=PTObjectMatrix)
+	transform_rotate: PTMat4 = field(default_factory=PTMat4)
 	physique: list[str] = field(default_factory=list)
 	animation: PTActorAnimation = field(default_factory=PTActorAnimation)
 
 
 @dataclass
-class PTActorBone():
+class PTActorBone:
 	parent: str = None
 	name: str = None
 	num_vertices: int = 0
@@ -238,7 +227,7 @@ class PTActorBone():
 	num_tfm_positions: int = 0
 	num_tfm_rotations: int = 0
 	num_tfm_scales: int = 0
-	vertices: list[PTObjectVertex] = field(default_factory=list)
+	vertices: list[PTVector3] = field(default_factory=list)
 	faces: list[PTObjectFace] = field(default_factory=list)
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
@@ -249,7 +238,7 @@ class PTActorBone():
 
 
 @dataclass
-class PTActorModel():
+class PTActorModel:
 	filename: str = None
 	version: str = VERSION
 	scene: PTModelScene = field(default_factory=PTModelScene)
@@ -263,14 +252,14 @@ class PTActorModel():
 
 
 @dataclass
-class PTServerStageMonster():
+class PTServerStageMonster:
 	name: str = None
 	name_en: str = None
 	spawn_rate: int = 0
 
 
 @dataclass
-class PTServerStageBoss():
+class PTServerStageBoss:
 	name: str = None
 	name_en: str = None
 	minion: str = None
@@ -280,18 +269,18 @@ class PTServerStageBoss():
 
 
 @dataclass
-class PTServerSpawnCharacter():
+class PTServerSpawnCharacter:
 	active: bool = False
 	name: str = None
 	char: str = None
 	npc: str = None
-	position: PTPosition = field(default_factory=PTRotation)
-	rotation: PTRotation = field(default_factory=PTPosition)
-	scale: PTScale = field(default_factory=PTScale)
+	position: PTVector3 = field(default_factory=PTQuaternion)
+	rotation: PTQuaternion = field(default_factory=PTVector3)
+	scale: PTVector3 = field(default_factory=PTVector3)
 
 
 @dataclass
-class PTServerSpawnMonster():
+class PTServerSpawnMonster:
 	spawn_interval_min: int = 0
 	spawn_interval_max: int = 0
 	max_monsters: int = 0
@@ -301,9 +290,9 @@ class PTServerSpawnMonster():
 
 
 @dataclass
-class PTServerSpawnPoint():
+class PTServerSpawnPoint:
 	active: bool = False
-	position: PTPosition = field(default_factory=PTPosition)
+	position: PTVector3 = field(default_factory=PTVector3)
 
 
 @dataclass
@@ -313,7 +302,7 @@ class PTServerStage(PTServerSpawnMonster):
 
 
 @dataclass
-class PTServerCharacter():
+class PTServerCharacter:
 	active: bool = False
 	model: str = None
 	level: int = 0
@@ -364,7 +353,7 @@ class PTServerCharacter():
 
 
 @dataclass
-class PTServerMonster():
+class PTServerMonster:
 	wPlayClass: bool = False
 	Size: bool = False
 	szName: bool = False
@@ -462,7 +451,7 @@ class PTServerMonster():
 
 
 @dataclass
-class PTServerItem():
+class PTServerItem:
 	NameEnglish: bool = False
 	ItemName: bool = False
 	Code: bool = False
@@ -550,6 +539,6 @@ class PTServerItem():
 
 
 @dataclass
-class PTServerStages():
+class PTServerStages:
 	version: str = VERSION
 	stages: dict[str, PTServerStage] = field(default_factory=dict)

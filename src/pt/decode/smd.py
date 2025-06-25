@@ -55,7 +55,7 @@ def decode_texture_map_name(stage_flag, form_flag):
 # The vertex color data is unrecoverable due to how PT tangles the data and
 # averages it out. The best we can do is to pull the information out and leave
 # it to the user to determine the value of this data.
-def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> tuple[list[PTObjectVertex], list[PTObjectVertexColor]]:
+def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> tuple[list[PTVector3], list[PTColorVertex]]:
 	vertices = []
 	colors = []
 
@@ -68,7 +68,7 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 
 		# swap Y and Z
 		# Reference: smRead3d.cpp::smSTAGE3D_ReadASE_GEOMOBJECT
-		vertices.append(PTObjectVertex(
+		vertices.append(PTVector3(
 			x = sm_vertex.x / 256,
 			y = sm_vertex.z / 256,
 			z = sm_vertex.y / 256
@@ -76,7 +76,7 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 
 		# BGRA
 		# Reference: smType.h::SMC_A, SMC_R, SMC_G, SMC_B
-		colors.append(PTObjectVertexColor(
+		colors.append(PTColorVertex(
 			r = sm_vertex.sDef_Color[2] / 255,
 			g = sm_vertex.sDef_Color[1] / 255,
 			b = sm_vertex.sDef_Color[0] / 255,
@@ -221,13 +221,13 @@ def decode_actor_parent(parent_name: str | None) -> smOBJ3D | None:
 
 def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None, has_bones: bool = False):
 	if sm_object_parent:
-		scalei = PTScaleInt(
+		scalei = PTVector3Int(
 			x = sm_object_parent.sx,
 			y = sm_object_parent.sy,
 			z = sm_object_parent.sz
 		)
 	else:
-		scalei = PTScaleInt(
+		scalei = PTVector3Int(
 			x = sm_object.sx,
 			y = sm_object.sy,
 			z = sm_object.sz
@@ -257,20 +257,20 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 		_43 = sm_object.Tm._43 / 256,
 		_44 = 1,
 
-		rotation = PTRotation(
+		rotation = PTQuaternion(
 			x = sm_object.qx,
 			y = sm_object.qy,
 			z = sm_object.qz,
 			w = sm_object.qw
 		),
 
-		position = PTPosition(
+		position = PTVector3(
 			x = sm_object.px / 256,
 			y = sm_object.py / 256,
 			z = sm_object.pz / 256
 		),
 
-		scale = PTScale(
+		scale = PTVector3(
 			x = sm_object.sx / 256,
 			y = sm_object.sy / 256,
 			z = sm_object.sz / 256
@@ -278,7 +278,7 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 	)
 
 
-def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTObjectVertex]:
+def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTVector3]:
 	vertices = []
 
 	# Some objects have no vertices
@@ -287,7 +287,7 @@ def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> l
 
 	for _ in range(sm_object.nVertex):
 		sm_vertex = sm_modelbuffer.read(smVERTEX)
-		vertices.append(PTObjectVertex(
+		vertices.append(PTVector3(
 			x = sm_vertex.x / 256,
 			y = sm_vertex.y / 256,
 			z = sm_vertex.z / 256

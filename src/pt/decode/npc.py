@@ -7,8 +7,7 @@ from pt.const import (
 
 
 def decode(path: str) -> PTServerCharacter:
-	""" Decode an NPC file which consists of NPC definition data. """
-
+	"""Decode an NPC file which consists of NPC definition data."""
 	character = PTServerCharacter()
 
 	with open(path, "rb") as f:

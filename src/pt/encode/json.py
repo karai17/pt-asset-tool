@@ -1,5 +1,5 @@
 from dataclasses import asdict, is_dataclass
-from json import JSONEncoder, dumps
+from json import JSONEncoder, dump
 from pathlib import Path
 
 
@@ -10,8 +10,7 @@ class CustomEncoder(JSONEncoder):
 		return super().default(obj)
 
 
-def encode(path: Path, data: bytes):
-	jsondata = dumps(data, cls=CustomEncoder, ensure_ascii=False, indent=2)
+def encode(path: Path, data: bytes) -> None:
+	"""Encodes a byte string to a JSON file and writes it to disk."""
 	path.parent.mkdir(exist_ok=True, parents=True)
-	with open(path, "w") as f:
-		f.write(jsondata)
+	dump(data, path, cls=CustomEncoder, ensure_ascii=False, indent=2)

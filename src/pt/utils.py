@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import numpy.typing as npt
 import os
 
 from ctypes import *
@@ -19,20 +20,18 @@ encodings = [
 ]
 
 
-def encode_string(korean: str) -> bytes:
-	""" Convert Korean text to bytes. """
-
+def encode_string(pstring: str) -> bytes:
+	"""Convert text to bytes."""
 	for enc in encodings:
 		try:
-			return korean.encode(enc)
+			return pstring.encode(enc)
 		except Exception:
 			continue
 	raise Exception("Unknown text encoding.")
 
 
 def decode_string(cstring: Array[c_byte] | bytes) -> str:
-	""" Convert bytes to Korean text. """
-
+	"""Convert bytes to text."""
 	line = bytes(cstring).split(b"\x00")[0]
 	for enc in encodings:
 		try:
@@ -42,14 +41,12 @@ def decode_string(cstring: Array[c_byte] | bytes) -> str:
 	raise Exception("Unknown text encoding.")
 
 
-def normalize_rotation(q: PTRotation) -> PTRotation:
-	""" Normalize a quaternion. """
-
+def normalize_quaternion(q: PTQuaternion) -> PTQuaternion:
+	"""Normalize a quaternion."""
 	magnitude = math.sqrt(q.w**2 + q.x**2 + q.y**2 + q.z**2)
 	if magnitude == 0:
-			raise ValueError("Cannot normalize a zero-length quaternion.")
-
-	return PTRotation(
+		raise ValueError("Cannot normalize a zero-length quaternion.")
+	return PTQuaternion(
 		q.x / magnitude,
 		q.y / magnitude,
 		q.z / magnitude,
@@ -57,16 +54,9 @@ def normalize_rotation(q: PTRotation) -> PTRotation:
 	)
 
 
-def multiply_rotations(a: PTRotation | PTAnimationRotation, b: PTRotation | PTAnimationRotation | int | float) -> PTRotation:
-	if not isinstance(b, PTRotation) and not isinstance(b, PTAnimationRotation):
-		return normalize_rotation(PTRotation(
-			a.x * b,
-			a.y * b,
-			a.z * b,
-			a.w * b
-		))
-
-	return normalize_rotation(PTRotation(
+def multiply_quaternions(a: PTQuaternion, b: PTQuaternion) -> PTQuaternion:
+	"""Multiply two quaternions together."""
+	return normalize_quaternion(PTQuaternion(
 		a.x * b.w + a.w * b.x + a.y * b.z - a.z * b.y,
 		a.y * b.w + a.w * b.y + a.z * b.x - a.x * b.z,
 		a.z * b.w + a.w * b.z + a.x * b.y - a.y * b.x,
@@ -74,7 +64,11 @@ def multiply_rotations(a: PTRotation | PTAnimationRotation, b: PTRotation | PTAn
 	))
 
 
-def vector_lerp(v1: PTPosition | PTScale | PTAnimationPosition | PTAnimationScale, v2: PTPosition | PTScale | PTAnimationPosition | PTAnimationScale, t: float) -> PTPosition | PTScale:
+def vector_lerp(v1: PTVector3, v2: PTVector3, t: float) -> PTVector3:
+	"""
+	Linear interpolation of a vector between a start and end posiition based on a
+	time value between 0 and 1.
+	"""
 	cls = type(v1)
 	a = np.array([v1.x, v1.y, v1.z])
 	b = np.array([v2.x, v2.y, v2.z])
@@ -89,7 +83,6 @@ def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:
 	Note: backslashes are hard coded into Priston Tale's data so we default the
 	seperator to back slashes.
 	"""
-
 	segments = path.split(sep)
 	root, ext = os.path.splitext(segments[-1])
 	return root, ext
@@ -99,19 +92,17 @@ def get_radians(angle: int) -> float:
 	"""
 		Angles are defined as a 4096 unit circle.
 
-		Reference: smSin.h::ANGLE_360
+		Reference: `smSin.h::ANGLE_360`
 	"""
-
 	return (angle % ANGLE_360) / ANGLE_360 * TAU
 
 
-def get_rotation(x: int, y: int, z: int) -> PTRotation:
+def get_quaternion(x: int, y: int, z: int) -> PTQuaternion:
 	"""
 		Convert Priston Tale's 4096 unit angles to a quaternion.
 
-		Reference: smgeosub.cpp::GetRadian2D
+		Reference: `smgeosub.cpp::GetRadian2D`
 	"""
-
 	rx = get_radians(x)
 	ry = get_radians(y)
 	rz = get_radians(z)
@@ -123,7 +114,7 @@ def get_rotation(x: int, y: int, z: int) -> PTRotation:
 	cz = math.cos(rz / 2)
 	sz = math.sin(rz / 2)
 
-	return normalize_rotation(PTRotation(
+	return normalize_quaternion(PTQuaternion(
 		x = sx * cy * cz - cx * sy * sz,
 		y = cx * sy * cz + sx * cy * sz,
 		z = cx * cy * sz - sx * sy * cz,
@@ -131,7 +122,8 @@ def get_rotation(x: int, y: int, z: int) -> PTRotation:
 	))
 
 
-def get_face_normal(a: PTObjectVertex, b: PTObjectVertex, c: PTObjectVertex) -> PTObjectVertex:
+def normalize_face(a: PTVector3, b: PTVector3, c: PTVector3) -> PTVector3:
+	"""Normalize a face."""
 	a = np.array([a.x, a.y, a.z])
 	b = np.array([b.x, b.y, b.z])
 	c = np.array([c.x, c.y, c.z])
@@ -143,14 +135,14 @@ def get_face_normal(a: PTObjectVertex, b: PTObjectVertex, c: PTObjectVertex) -> 
 	norm = np.linalg.norm(n)
 
 	if norm == 0:
-		return PTObjectVertex(0, 1, 0)
+		return PTVector3(0, 1, 0)
 
 	n = (n / norm).tolist()
+	return PTVector3(n[0], n[1], n[2])
 
-	return PTObjectVertex(n[0], n[1], n[2])
 
-
-def to_np_matrix(m: PTObjectMatrix | PTObjectTransform):
+def to_np_matrix(m: PTMat4) -> npt.NDArray[np.float32]:
+	"""Convert a mat4 to a numpy mat4."""
 	return np.array([
 		[m._11, m._21, m._31, m._41],
 		[m._12, m._22, m._32, m._42],
@@ -159,9 +151,10 @@ def to_np_matrix(m: PTObjectMatrix | PTObjectTransform):
 	], dtype=np.float32).T
 
 
-def from_np_matrix(m) -> PTObjectMatrix:
+def from_np_matrix(m: npt.NDArray[np.float32]) -> PTMat4:
+	"""Convert a numpy mat4 to a mat4."""
 	m = m.T.tolist()
-	return PTObjectMatrix(
+	return PTMat4(
 		_11=m[0][0], _21=m[1][0], _31=m[2][0], _41=m[3][0],
 		_12=m[0][1], _22=m[1][1], _32=m[2][1], _42=m[3][1],
 		_13=m[0][2], _23=m[1][2], _33=m[2][2], _43=m[3][2],
@@ -169,16 +162,19 @@ def from_np_matrix(m) -> PTObjectMatrix:
 	)
 
 
-def to_np_vector(v: PTObjectVertex):
+def to_np_vector(v: PTVector3) -> npt.NDArray[np.float32]:
+	"""Convert a vec3 to a numpy vec3."""
 	return np.array([ v.x, v.y, v.z, 1 ], dtype=np.float32)
 
 
-def from_np_vector(v) -> PTObjectVertex:
+def from_np_vector(v: npt.NDArray[np.float32]) -> PTVector3:
+	"""Convert a numpy vec3 to a vec3."""
 	v = v.tolist()
-	return PTObjectVertex(v[0], v[1], v[2])
+	return PTVector3(v[0], v[1], v[2])
 
 
-def trs_to_np_matrix(t: PTPosition, r: PTRotation, s: PTScale):
+def trs_to_np_matrix(t: PTVector3, r: PTQuaternion, s: PTVector3) -> npt.NDArray[np.float32]:
+	"""Build a numpy mat4 from a translation, rotation, and scale."""
 	xx, yy, zz = r.x*r.x, r.y*r.y, r.z*r.z
 	xy, xz, yz = r.x*r.y, r.x*r.z, r.y*r.z
 	wx, wy, wz = r.w*r.x, r.w*r.y, r.w*r.z
@@ -188,38 +184,38 @@ def trs_to_np_matrix(t: PTPosition, r: PTRotation, s: PTScale):
 		[  2*(xy+wz), 1-2*(xx+zz),   2*(yz-wx), 0],
 		[  2*(xz-wy),   2*(yz+wx), 1-2*(xx+yy), 0],
 		[          0,           0,           0, 1]
-	]).T
+	], dtype=np.float32).T
 
 	np_sm = np.array([
 		[s.x,   0,   0, 0],
 		[  0, s.y,   0, 0],
 		[  0,   0, s.z, 0],
 		[  0,   0,   0, 1]
-	]).T
+	], dtype=np.float32).T
 
 	np_rsm = np_rm @ np_sm
 	np_rsm[:3, 3] = np.array([t.x, t.y, t.z])
-
 	return np_rsm
 
 
-def matrix_to_rotation(m: PTObjectMatrix) -> PTRotation:
+def matrix_to_quaternion(m: PTMat4) -> PTQuaternion:
+	"""Convert a mat4 to a quaternion."""
 	sq = 1 + m._11 + m._22 + m._33
 	if sq <= 0:
-		return PTRotation()
+		return PTQuaternion()
 
 	w = math.sqrt(sq) / 2
 	scale = w * 4
 
-	q = normalize_rotation(PTRotation(
+	q = normalize_quaternion(PTQuaternion(
 		x = (m._32 - m._23) / scale,
 		y = (m._13 - m._31) / scale,
 		z = (m._21 - m._12) / scale,
 		w = w
 	))
 
-	# some matrices in the SMD data can have unusable data, converting to quaternions become NaN
+	# some matrices in the SMD data can have unusable data
+	# converting to a quaternion becomes NaN
 	if q.w != q.w:
-		return PTRotation()
-
+		return PTQuaternion()
 	return q

@@ -4,7 +4,7 @@ from pt.buffer import BufferReader
 from pt.cdef import *
 from pt.const import SCALE_INCH_TO_METER
 from pt.pdef import *
-from pt.utils import get_rotation, get_filename, decode_string
+from pt.utils import get_quaternion, get_filename, decode_string
 
 
 def decode(path: str) -> list[PTServerSpawnCharacter]:
@@ -20,9 +20,8 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 	future server developers want to create extra large stages with many more
 	NPCs.
 
-	Reference: onserver.h::FIX_CHAR_MAX
+	Reference: `onserver.h::FIX_CHAR_MAX`
 	"""
-
 	sm_buffer = BufferReader(path)
 	filesize = len(sm_buffer.data)
 	num_points = int(filesize / sizeof(smTRNAS_PLAYERINFO))
@@ -40,13 +39,13 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 				name = decode_string(sm_npc.smCharInfo.szName),
 				char = char.casefold(),
 				npc = npc.casefold(),
-				position = PTPosition(
+				position = PTVector3(
 					x = sm_npc.x * SCALE_INCH_TO_METER,
 					y = sm_npc.y * SCALE_INCH_TO_METER,
 					z = sm_npc.z * SCALE_INCH_TO_METER
 				),
-				rotation = get_rotation(sm_npc.ax, sm_npc.ay, sm_npc.az),
-				scale = PTScale()
+				rotation = get_quaternion(sm_npc.ax, sm_npc.ay, sm_npc.az),
+				scale = PTVector3()
 			))
 
 	return npcs

@@ -8,8 +8,7 @@ from pt.const import (
 
 
 def decode(path: str) -> PTServerSpawnMonster:
-	""" Decode an SPM file which consists of monster spawn data for a stage. """
-
+	"""Decode an SPM file which consists of monster spawn data for a stage."""
 	config = PTServerSpawnMonster()
 
 	with open(path, "rb") as f:
