@@ -340,7 +340,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 			"weights0buffer": BufferReader(vert_words*4)
 		}
 
-		for iface in range(faces):
+		for iface in faces:
 			# POSITION
 			vertices = []
 
