@@ -4,7 +4,7 @@ from pt.buffer import BufferReader
 from pt.cdef import *
 from pt.const import SCALE_INCH_TO_METER
 from pt.pdef import *
-from pt.utils import get_quaternion, get_filename, decode_string
+from pt.utils import angles_to_quaternion, get_filename, decode_string
 
 
 def decode(path: str) -> list[PTServerSpawnCharacter]:
@@ -27,12 +27,12 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 	num_points = int(filesize / sizeof(smTRNAS_PLAYERINFO))
 	npcs = []
 
-	for i in range(0, num_points):
+	for _ in range(num_points):
 		sm_npc = sm_buffer.read(smTRNAS_PLAYERINFO)
 
 		if sm_npc.size == 504:
-			char, _ = get_filename(decode_string(sm_npc.smCharInfo.szModelName))
-			npc, _ = get_filename(decode_string(sm_npc.smCharInfo.szModelName2))
+			char, ext = get_filename(decode_string(sm_npc.smCharInfo.szModelName))
+			npc, ext = get_filename(decode_string(sm_npc.smCharInfo.szModelName2))
 
 			npcs.append(PTServerSpawnCharacter(
 				active = True if sm_npc.code == 1212612720 else False,
@@ -44,7 +44,7 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 					y = sm_npc.y * SCALE_INCH_TO_METER,
 					z = sm_npc.z * SCALE_INCH_TO_METER
 				),
-				rotation = get_quaternion(sm_npc.ax, sm_npc.ay, sm_npc.az),
+				rotation = angles_to_quaternion(sm_npc.ax, sm_npc.ay, sm_npc.az),
 				scale = PTVector3()
 			))
 

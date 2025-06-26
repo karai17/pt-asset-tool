@@ -44,9 +44,6 @@ if __name__ == "__main__":
 	if args.output:
 		args.output = trailing_slash(args.output)
 
-	print(args.input)
-	print(args.output)
-
 	# walk through all of the files in the game client and bucket them by filetype
 	for dirpath, dirnames, filenames in os.walk(args.input):
 		for filename in filenames:
@@ -64,13 +61,10 @@ if __name__ == "__main__":
 	if args.texture:
 		patch_bmp(buckets[".bmp"], args)
 		patch_tga(buckets[".tga"], args)
-
 	if args.audio:
 		patch_wav(buckets[".wav"], args)
-
 	if args.model:
 		decode_inx(buckets[".inx"], args)
 		decode_smd(buckets[".smd"], buckets[".inx"], args)
-
 	if args.server:
 		decode_stages(buckets[".spc"], buckets[".spm"], buckets[".spp"], args)

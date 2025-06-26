@@ -56,7 +56,7 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 	metadata = PTModelMetadata()
 
 	# collect only high quality model names, cull the rest in the smd importer
-	for i in range(0, sm_modelinfo.HighModel.ModelNameCnt):
+	for i in range(sm_modelinfo.HighModel.ModelNameCnt):
 		metadata.model_names.append(decode_string(sm_modelinfo.HighModel.szModelName[i]))
 
 	# loop through and decode motion info to build metadata
@@ -74,61 +74,59 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 			# event frames denote which frame relative to the beginning of the
 			# animation some event occurs, such as playing a sound, displaying a
 			# decal, or whatever else!
-			for k in range(0, 3):
+			for k in range(3):
 				event_frame = sm_motioninfo.EventFrame[k]
 				if event_frame > 0:
 					animation.event_frames.append(event_frame / 160)
 
-
 			# TODO: MotionFrame
-			# TODO: talk info (see Lua debug prints)
-
+			# TODO: talk info (see debug prints)
 
 			metadata.animations.append(animation)
 
 
 	#----------- debug prints ---------------
 	"""
-	print("FileTypeKeyWord:", info.FileTypeKeyWord)
-	print("LinkFileKeyWord:", info.LinkFileKeyWord)
+	print("FileTypeKeyWord:", sm_model_info.FileTypeKeyWord)
+	print("LinkFileKeyWord:", sm_model_info.LinkFileKeyWord)
 
-	print("linkPath:", ffi.string(info.linkPath))
-	print("talkLinkPath:", ffi.string(info.talkLinkPath))
-	print("talkMotionPath:", ffi.string(info.talkMotionPath))
+	print("linkPath:", decode_string(sm_model_info.linkPath))
+	print("talkLinkPath:", decode_string(sm_model_info.talkLinkPath))
+	print("talkMotionPath:", decode_string(sm_model_info.talkMotionPath))
 
-	print("numTalkMotion:", info.numTalkMotion)
-	for i=0, 30-1 do
-		local mi = info.talkMotionInfo[i]
+	print("numTalkMotion:", sm_model_info.numTalkMotion)
+	for i in range(30):
+		mi = sm_model_info.talkMotionInfo[i]
 		decode_motion(mi)
 		print_motioninfo(mi, "talkMotionInfo")
 	end
 
-	local npcMotionRate = {}
-	for i=0, 30-1 do
-		table.insert(npcMotionRate, info.npcMotionRate[i])
+	npcMotionRate = []
+	for i in range(30):
+		npcMotionRate.append(sm_model_info.npcMotionRate[i])
 	end
 	print_array(npcMotionRate, "npcMotionRate")
 
-	local numNpcMotionRate = {}
-	for i=0, 100-1 do
-		table.insert(numNpcMotionRate, info.numNpcMotionRate[i])
+	numNpcMotionRate = []
+	for i in range(100):
+		numNpcMotionRate.append(sm_model_info.numNpcMotionRate[i])
 	end
 	print_array(numNpcMotionRate, "numNpcMotionRate")
 
-	local talkMotionRate = {}
-	for i=0, 30-1 do
-		table.insert(talkMotionRate, info.talkMotionRate[i])
+	talkMotionRate = []
+	for i in range(30):
+		talkMotionRate.append(sm_model_info.talkMotionRate[i])
 	end
 	print_array(talkMotionRate, "talkMotionRate")
 
-	local numTalkMotionRate = {}
-	for i=0, 2-1 do
-		local x = {}
-		for k=0, 100-1 do
-			table.insert(x, info.numTalkMotionRate[i][k])
-			print("numTalkMotionRate:", i, k, info.numTalkMotionRate[i][k])
+	numTalkMotionRate = []
+	for i in range(2):
+		x = []
+		for k in range(100):
+			x.append(sm_model_info.numTalkMotionRate[i][k])
+			print("numTalkMotionRate:", i, k, sm_model_info.numTalkMotionRate[i][k])
 		end
-		table.insert(numTalkMotionRate, x)
+		numTalkMotionRate.append(x)
 	end
 
 	print()

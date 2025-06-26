@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pt.const import VERSION
 
 
-""" Generics """
+"""GENERICS"""
 
 
 @dataclass
@@ -35,7 +35,7 @@ class PTMat4:
 	_41: float = 0; _42: float = 0; _43: float = 0; _44: float = 1
 
 
-""" Metadata """
+"""METADATA"""
 
 
 @dataclass
@@ -53,7 +53,7 @@ class PTModelMetadata:
 	animations: list[PTMotionMetadata] = field(default_factory=list)
 
 
-""" Texture """
+"""TEXTURES"""
 
 
 @dataclass
@@ -72,7 +72,7 @@ class PTTextureVertex:
 	v: float = 0
 
 
-""" Object """
+"""OBJECTS"""
 
 
 @dataclass
@@ -95,7 +95,7 @@ class PTObjectTexture_Coord:
 	vertices: list[PTTextureVertex] = field(default_factory=list)
 
 
-""" Model """
+"""MODELS"""
 
 
 @dataclass
@@ -120,7 +120,7 @@ class PTModelMaterial:
 	texture_map: PTTextureMap = field(default_factory=PTTextureMap)
 
 
-""" Transform """
+"""TRANSFORMS"""
 
 
 @dataclass
@@ -130,7 +130,7 @@ class PTObjectTransform(PTMat4):
 	scale: PTVector3 = field(default_factory=PTVector3)
 
 
-""" Animation """
+"""ANIMATIONS"""
 
 
 @dataclass
@@ -161,7 +161,7 @@ class PTAnimationTrack:
 	scale: PTAnimationSampler = field(default_factory=PTAnimationSampler)
 
 
-""" Stage """
+"""STAGES"""
 
 
 @dataclass
@@ -189,7 +189,7 @@ class PTStageModel:
 	objects: list[PTStageObject] = field(default_factory=list)
 
 
-""" Actor """
+"""ACTORS"""
 
 
 @dataclass
@@ -248,7 +248,7 @@ class PTActorModel:
 	animations: list[PTMotionMetadata] = field(default_factory=list)
 
 
-""" SERVER """
+"""SERVER STAGES"""
 
 
 @dataclass
@@ -302,6 +302,15 @@ class PTServerStage(PTServerSpawnMonster):
 
 
 @dataclass
+class PTServerStages:
+	version: str = VERSION
+	stages: dict[str, PTServerStage] = field(default_factory=dict)
+
+
+"""SERVER CHARACTERS"""
+
+
+@dataclass
 class PTServerCharacter:
 	active: bool = False
 	model: str = None
@@ -344,12 +353,7 @@ class PTServerCharacter:
 	PollingNpc: int = 0
 
 
-
-
-
-
-
-
+"""SERVER MONSTERS"""
 
 
 @dataclass
@@ -442,12 +446,7 @@ class PTServerMonster:
 	Undead2: bool = False
 
 
-
-
-
-
-
-
+"""SERVER ITEMS"""
 
 
 @dataclass
@@ -528,17 +527,3 @@ class PTServerItem:
 	EffectColor: bool = False
 	sGenDay: bool = False
 	szNextFile: bool = False
-
-
-
-
-
-
-
-
-
-
-@dataclass
-class PTServerStages:
-	version: str = VERSION
-	stages: dict[str, PTServerStage] = field(default_factory=dict)

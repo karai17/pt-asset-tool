@@ -5,7 +5,7 @@ from ctypes import *
 from pt.buffer import BufferReader
 from pt.cdef import *
 from pt.pdef import *
-from pt.utils import get_filename, decode_string
+from pt.utils import decode_string, get_filename
 from pt.const import (
 	STAGE_SIGNATURE,
 	ACTOR_SIGNATURE,
@@ -433,42 +433,42 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 
 		"""
 		if ( smMaterial[MatNum].Transparency==0 )
-			smMaterial[MatNum].MeshState		= SMMAT_STAT_CHECK_FACE;
+			smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
 
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WIND) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX1) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX1;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX2) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX2;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ1) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WATER) ) {
 			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WATER;
-			smMaterial[MatNum].MeshState		= 0;
+			smMaterial[MatNum].MeshState = 0;
 		}
 
 		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_NOTPASS) ) {
-			smMaterial[MatNum].MeshState		= SMMAT_STAT_CHECK_FACE;	//허가
+			smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
 		} else {
 			if ( (aseMaterial->ScriptState&sMATS_SCRIPT_PASS) ) {
-				smMaterial[MatNum].MeshState		= 0;					//불가
+				smMaterial[MatNum].MeshState = 0;
 			}
 		}
 
@@ -620,7 +620,7 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 	elif sm_fileheader.ObjCounter > 0:
 		sm_modelbuffer.seek(sm_fileheader.First_ObjInfoPoint)
 
-		for i in range(sm_fileheader.ObjCounter):
+		for _ in range(sm_fileheader.ObjCounter):
 			sm_object = sm_modelbuffer.read(smOBJ3D)
 
 			# If the object has transform data, get the last frame from this object.

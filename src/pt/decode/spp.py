@@ -26,7 +26,7 @@ def decode(path: str) -> list[PTServerSpawnPoint]:
 	num_points = int(filesize / sizeof(STG_START_POINT))
 	points = []
 
-	for i in range(0, num_points):
+	for _ in range(num_points):
 		sm_point = sm_buffer.read(STG_START_POINT)
 
 		if sm_point.state + sm_point.x + sm_point.z != 0:

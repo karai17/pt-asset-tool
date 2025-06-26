@@ -20,6 +20,9 @@ encodings = [
 ]
 
 
+"""STRINGS"""
+
+
 def encode_string(pstring: str) -> bytes:
 	"""Convert text to bytes."""
 	for enc in encodings:
@@ -39,6 +42,30 @@ def decode_string(cstring: Array[c_byte] | bytes) -> str:
 		except Exception:
 			continue
 	raise Exception("Unknown text encoding.")
+
+
+def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:
+	"""
+	Get the root and extension of a filename.
+
+	Note: backslashes are hard coded into Priston Tale's data so we default the
+	seperator to back slashes.
+	"""
+	segments = path.split(sep)
+	root, ext = os.path.splitext(segments[-1])
+	return root, ext
+
+
+"""QUATERNIONS / ANGLES"""
+
+
+def angle_to_radian(angle: int) -> float:
+	"""
+		Angles are defined as a 4096 unit circle.
+
+		Reference: `smSin.h::ANGLE_360`
+	"""
+	return (angle % ANGLE_360) / ANGLE_360 * TAU
 
 
 def normalize_quaternion(q: PTQuaternion) -> PTQuaternion:
@@ -64,48 +91,38 @@ def multiply_quaternions(a: PTQuaternion, b: PTQuaternion) -> PTQuaternion:
 	))
 
 
-def vector_lerp(v1: PTVector3, v2: PTVector3, t: float) -> PTVector3:
-	"""
-	Linear interpolation of a vector between a start and end posiition based on a
-	time value between 0 and 1.
-	"""
-	cls = type(v1)
-	a = np.array([v1.x, v1.y, v1.z])
-	b = np.array([v2.x, v2.y, v2.z])
-	c = ((1 - t) * a + t * b).tolist()
-	return cls(x=c[0], y=c[1], z=c[2])
+def matrix_to_quaternion(m: PTMat4) -> PTQuaternion:
+	"""Convert a mat4 to a quaternion."""
+	sq = 1 + m._11 + m._22 + m._33
+	if sq <= 0:
+		return PTQuaternion()
+
+	w = math.sqrt(sq) / 2
+	scale = w * 4
+
+	q = normalize_quaternion(PTQuaternion(
+		x = (m._32 - m._23) / scale,
+		y = (m._13 - m._31) / scale,
+		z = (m._21 - m._12) / scale,
+		w = w
+	))
+
+	# some matrices in the SMD data can have unusable data
+	# converting to a quaternion becomes NaN
+	if q.w != q.w:
+		return PTQuaternion()
+	return q
 
 
-def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:
-	"""
-	Get the root and extension of a filename.
-
-	Note: backslashes are hard coded into Priston Tale's data so we default the
-	seperator to back slashes.
-	"""
-	segments = path.split(sep)
-	root, ext = os.path.splitext(segments[-1])
-	return root, ext
-
-
-def get_radians(angle: int) -> float:
-	"""
-		Angles are defined as a 4096 unit circle.
-
-		Reference: `smSin.h::ANGLE_360`
-	"""
-	return (angle % ANGLE_360) / ANGLE_360 * TAU
-
-
-def get_quaternion(x: int, y: int, z: int) -> PTQuaternion:
+def angles_to_quaternion(x: int, y: int, z: int) -> PTQuaternion:
 	"""
 		Convert Priston Tale's 4096 unit angles to a quaternion.
 
 		Reference: `smgeosub.cpp::GetRadian2D`
 	"""
-	rx = get_radians(x)
-	ry = get_radians(y)
-	rz = get_radians(z)
+	rx = angle_to_radian(x)
+	ry = angle_to_radian(y)
+	rz = angle_to_radian(z)
 
 	cx = math.cos(rx / 2)
 	sx = math.sin(rx / 2)
@@ -122,23 +139,33 @@ def get_quaternion(x: int, y: int, z: int) -> PTQuaternion:
 	))
 
 
-def normalize_face(a: PTVector3, b: PTVector3, c: PTVector3) -> PTVector3:
-	"""Normalize a face."""
-	a = np.array([a.x, a.y, a.z])
-	b = np.array([b.x, b.y, b.z])
-	c = np.array([c.x, c.y, c.z])
+"""VECTORS"""
 
-	ab = b - a
-	ac = c - a
 
-	n = np.cross(ab, ac)
-	norm = np.linalg.norm(n)
+def lerp_vector(v1: PTVector3, v2: PTVector3, t: float) -> PTVector3:
+	"""
+	Linear interpolation of a vector between a start and end posiition based on a
+	time value between 0 and 1.
+	"""
+	cls = type(v1)
+	a = np.array([v1.x, v1.y, v1.z])
+	b = np.array([v2.x, v2.y, v2.z])
+	c = ((1 - t) * a + t * b).tolist()
+	return cls(x=c[0], y=c[1], z=c[2])
 
-	if norm == 0:
-		return PTVector3(0, 1, 0)
 
-	n = (n / norm).tolist()
-	return PTVector3(n[0], n[1], n[2])
+def to_np_vector(v: PTVector3) -> npt.NDArray[np.float32]:
+	"""Convert a vec3 to a numpy vec3."""
+	return np.array([ v.x, v.y, v.z, 1 ], dtype=np.float32)
+
+
+def from_np_vector(v: npt.NDArray[np.float32]) -> PTVector3:
+	"""Convert a numpy vec3 to a vec3."""
+	v = v.tolist()
+	return PTVector3(v[0], v[1], v[2])
+
+
+"""MATRICES"""
 
 
 def to_np_matrix(m: PTMat4) -> npt.NDArray[np.float32]:
@@ -160,17 +187,6 @@ def from_np_matrix(m: npt.NDArray[np.float32]) -> PTMat4:
 		_13=m[0][2], _23=m[1][2], _33=m[2][2], _43=m[3][2],
 		_14=m[0][3], _24=m[1][3], _34=m[2][3], _44=m[3][3]
 	)
-
-
-def to_np_vector(v: PTVector3) -> npt.NDArray[np.float32]:
-	"""Convert a vec3 to a numpy vec3."""
-	return np.array([ v.x, v.y, v.z, 1 ], dtype=np.float32)
-
-
-def from_np_vector(v: npt.NDArray[np.float32]) -> PTVector3:
-	"""Convert a numpy vec3 to a vec3."""
-	v = v.tolist()
-	return PTVector3(v[0], v[1], v[2])
 
 
 def trs_to_np_matrix(t: PTVector3, r: PTQuaternion, s: PTVector3) -> npt.NDArray[np.float32]:
@@ -198,24 +214,23 @@ def trs_to_np_matrix(t: PTVector3, r: PTQuaternion, s: PTVector3) -> npt.NDArray
 	return np_rsm
 
 
-def matrix_to_quaternion(m: PTMat4) -> PTQuaternion:
-	"""Convert a mat4 to a quaternion."""
-	sq = 1 + m._11 + m._22 + m._33
-	if sq <= 0:
-		return PTQuaternion()
+"""PRIMITIVES"""
 
-	w = math.sqrt(sq) / 2
-	scale = w * 4
 
-	q = normalize_quaternion(PTQuaternion(
-		x = (m._32 - m._23) / scale,
-		y = (m._13 - m._31) / scale,
-		z = (m._21 - m._12) / scale,
-		w = w
-	))
+def normalize_face(a: PTVector3, b: PTVector3, c: PTVector3) -> PTVector3:
+	"""Normalize a face."""
+	a = np.array([a.x, a.y, a.z])
+	b = np.array([b.x, b.y, b.z])
+	c = np.array([c.x, c.y, c.z])
 
-	# some matrices in the SMD data can have unusable data
-	# converting to a quaternion becomes NaN
-	if q.w != q.w:
-		return PTQuaternion()
-	return q
+	ab = b - a
+	ac = c - a
+
+	n = np.cross(ab, ac)
+	norm = np.linalg.norm(n)
+
+	if norm == 0:
+		return PTVector3(0, 1, 0)
+
+	n = (n / norm).tolist()
+	return PTVector3(n[0], n[1], n[2])

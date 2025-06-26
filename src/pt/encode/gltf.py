@@ -44,7 +44,7 @@ from pt.utils import (
 	get_filename,
 	normalize_face,
 	multiply_quaternions,
-	vector_lerp
+	lerp_vector
 )
 
 
@@ -88,7 +88,7 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 				# if there are gaps between frames, fill them in
 				if cframe > pframe+1:
 					for f in range(pframe+1, cframe):
-						ntfm = vector_lerp(ptfm, tfm, (f-pframe) / (cframe-pframe))
+						ntfm = lerp_vector(ptfm, tfm, (f-pframe) / (cframe-pframe))
 						ntfm.frame = f * 160
 						new_frames.append(ntfm)
 
@@ -110,7 +110,7 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 				# if there are gaps between frames, fill them in
 				if cframe > pframe+1:
 					for f in range(pframe+1, cframe):
-						ntfm = vector_lerp(ptfm, tfm, (f-pframe) / (cframe-pframe))
+						ntfm = lerp_vector(ptfm, tfm, (f-pframe) / (cframe-pframe))
 						ntfm.frame = f * 160
 						new_frames.append(ntfm)
 
@@ -340,7 +340,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 			"weights0buffer": BufferReader(vert_words*4)
 		}
 
-		for i, iface in enumerate(faces):
+		for iface in range(faces):
 			# POSITION
 			vertices = []
 
