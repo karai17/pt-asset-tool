@@ -40,7 +40,7 @@ class PTMat4:
 
 @dataclass
 class PTMotionMetadata:
-	name: str = None
+	name: str | None = None
 	start_frame: int = 0
 	end_frame: int = 0
 	repeat: bool = False
@@ -58,12 +58,12 @@ class PTModelMetadata:
 
 @dataclass
 class PTTextureMap:
-	diffuse_name: str = None
-	diffuse_path: str = None
-	selfillum_name: str = None
-	selfillum_path: str = None
-	opacity_name: str = None
-	opacity_path: str = None
+	diffuse_name: str | None = None
+	diffuse_path: str | None = None
+	selfillum_name: str | None = None
+	selfillum_path: str | None = None
+	opacity_name: str | None = None
+	opacity_path: str | None = None
 
 
 @dataclass
@@ -86,7 +86,7 @@ class PTColorVertex:
 @dataclass
 class PTObjectFace:
 	vertices: list[int] = field(default_factory=list)
-	material_id: int = None
+	material_id: int | None = None
 
 
 @dataclass
@@ -107,7 +107,7 @@ class PTModelScene:
 
 @dataclass
 class PTModelMaterial:
-	name: str = None
+	name: str | None = None
 	num_textures: int = 0
 	ambient: list[float] = field(default_factory=list)
 	diffuse: list[float] = field(default_factory=list)
@@ -150,8 +150,8 @@ class PTAnimationScale(PTVector3):
 
 @dataclass
 class PTAnimationSampler:
-	input: int = None
-	output: int = None
+	input: int | None = None
+	output: int | None = None
 
 
 @dataclass
@@ -166,7 +166,7 @@ class PTAnimationTrack:
 
 @dataclass
 class PTStageObject:
-	name: str = None
+	name: str | None = None
 	num_vertices: int = 0
 	num_faces: int = 0
 	num_texture_links: int = 0
@@ -182,7 +182,7 @@ class PTStageObject:
 
 @dataclass
 class PTStageModel:
-	filename: str = None
+	filename: str | None = None
 	version: str = VERSION
 	scene: PTModelScene = field(default_factory=PTModelScene)
 	materials: list[PTModelMaterial] = field(default_factory=list)
@@ -201,8 +201,8 @@ class PTActorAnimation:
 
 @dataclass
 class PTActorObject:
-	parent: str = None
-	name: str = None
+	parent: str | None = None
+	name: str | None = None
 	num_vertices: int = 0
 	num_faces: int = 0
 	num_texture_links: int = 0
@@ -220,8 +220,8 @@ class PTActorObject:
 
 @dataclass
 class PTActorBone:
-	parent: str = None
-	name: str = None
+	parent: str | None = None
+	name: str | None = None
 	num_vertices: int = 0
 	num_faces: int = 0
 	num_tfm_positions: int = 0
@@ -232,14 +232,14 @@ class PTActorBone:
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
 	animation: PTActorAnimation = field(default_factory=PTActorAnimation)
-	_id: int = None
-	_parent = None
+	_id: int | None = None
+	_parent | None = None
 	_children: list[int] = field(default_factory=list)
 
 
 @dataclass
 class PTActorModel:
-	filename: str = None
+	filename: str | None = None
 	version: str = VERSION
 	scene: PTModelScene = field(default_factory=PTModelScene)
 	materials: list[PTModelMaterial] = field(default_factory=list)
@@ -253,17 +253,17 @@ class PTActorModel:
 
 @dataclass
 class PTServerStageMonster:
-	name: str = None
-	name_en: str = None
+	name: str | None = None
+	name_en: str | None = None
 	spawn_rate: int = 0
 
 
 @dataclass
 class PTServerStageBoss:
-	name: str = None
-	name_en: str = None
-	minion: str = None
-	minion_en: str = None
+	name: str | None = None
+	name_en: str | None = None
+	minion: str | None = None
+	minion_en: str | None = None
 	num_minions: int = 0
 	hours: list[int] = field(default_factory=list)
 
@@ -271,11 +271,11 @@ class PTServerStageBoss:
 @dataclass
 class PTServerSpawnCharacter:
 	active: bool = False
-	name: str = None
-	char: str = None
-	npc: str = None
-	position: PTVector3 = field(default_factory=PTQuaternion)
-	rotation: PTQuaternion = field(default_factory=PTVector3)
+	name: str | None = None
+	char: str | None = None
+	npc: str | None = None
+	position: PTVector3 = field(default_factory=PTVector3)
+	rotation: PTQuaternion = field(default_factory=PTQuaternion)
 	scale: PTVector3 = field(default_factory=PTVector3)
 
 
@@ -313,10 +313,10 @@ class PTServerStages:
 @dataclass
 class PTServerCharacter:
 	active: bool = False
-	model: str = None
+	model: str | None = None
 	level: int = 0
-	name: str = None
-	name_en: str = None
+	name: str | None = None
+	name_en: str | None = None
 	dialogue: list[str] = field(default_factory=list)
 	sell_weapons: list[str] = field(default_factory=list)
 	sell_defences: list[str] = field(default_factory=list)
@@ -333,13 +333,13 @@ class PTServerCharacter:
 	item_reset: bool = False
 	clan_master: bool = False
 	teleport_master: int = 0
-	media_title: str = None
-	media_path: str = None
+	media_title: str | None = None
+	media_path: str | None = None
 	find_word: int = 0
 	exit_number: int = 0
 	quest_code: int = 0
 	quest_param: int = 0
-	zhoon_path: str = None
+	zhoon_path: str | None = None
 
 	CollectMoney: bool = False
 	WowEvent: bool = False
