@@ -233,7 +233,7 @@ class PTActorBone:
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
 	animation: PTActorAnimation = field(default_factory=PTActorAnimation)
 	_id: int | None = None
-	_parent | None = None
+	_parent = None
 	_children: list[int] = field(default_factory=list)
 
 
