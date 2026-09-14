@@ -2,10 +2,10 @@
 
 ## Build Instructions
 
-This application is written in Python and dependencies are managed with Poetry. You will need both of these tools to run this application.
+This application is written in Python and dependencies are managed with UV. You will need both of these tools to run this application.
 
 ```sh
-poetry install
+uv sync
 ```
 
 ## Usage Instructions
@@ -25,7 +25,7 @@ By default, if you run this application it will not produce results. You need to
 ```
 
 ```sh
-poetry run python -u -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_decoded -mtpg
+uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_decoded -mtpg
 ```
 
 ## Features

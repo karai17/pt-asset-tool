@@ -2,27 +2,45 @@
 name = "pt-asset-tool"
 version = "0.1.0"
 description = ""
-license = { text = "MIT" }
-authors = [
-    { name = "Landon Manning", email = "lmanning17@gmail.com" }
-]
-readme = "README.md"
+authors = [{ name = "Landon Manning", email = "lmanning17@gmail.com" }]
 requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "pillow (>=11.2.1,<12.0.0)",
     "pygltflib (>=1.16.4,<2.0.0)",
     "numpy (>=2.3.0,<3.0.0)",
 ]
 
-[tool.poetry]
-packages = [
-    { include = "pt", from = "src" },
-    { include = "app", from = "src" }
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+default-groups = "all"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/pt",
+    "src/app",
 ]
 
-[tool.poetry.group.dev.dependencies]
-pytest = "*"
+[tool.hatch.build.targets.wheel]
+include = [
+    "src/pt",
+    "src/app",
+]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/pt" = "pt"
+"src/app" = "app"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
