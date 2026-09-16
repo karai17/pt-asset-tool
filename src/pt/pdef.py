@@ -64,6 +64,8 @@ class PTTextureMap:
 	selfillum_path: str | None = None
 	opacity_name: str | None = None
 	opacity_path: str | None = None
+	lightmap_name: str | None = None
+	lightmap_path: str | None = None
 
 
 @dataclass
@@ -92,7 +94,7 @@ class PTObjectFace:
 @dataclass
 class PTObjectTexture_Coord:
 	face: PTObjectFace = field(default_factory=PTObjectFace)
-	vertices: list[PTTextureVertex] = field(default_factory=list)
+	uv_sets: list[list[PTTextureVertex]] = field(default_factory=list)
 
 
 """MODELS"""
@@ -109,6 +111,7 @@ class PTModelScene:
 class PTModelMaterial:
 	name: str | None = None
 	num_textures: int = 0
+	num_anim_textures: int = 0
 	ambient: list[float] = field(default_factory=list)
 	diffuse: list[float] = field(default_factory=list)
 	specular: list[float] = field(default_factory=list)

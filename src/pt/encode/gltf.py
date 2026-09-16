@@ -336,6 +336,9 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 			"positionbuffer": BufferReader(vert_words*3),
 			"normalbuffer": BufferReader(vert_words*3),
 			"texcoord0buffer": BufferReader(vert_words*2),
+			"texcoord1buffer": BufferReader(vert_words*2),
+			"texcoord0": True,
+			"texcoord1": True,
 			"joints0buffer": BufferReader(vert_words),
 			"weights0buffer": BufferReader(vert_words*4)
 		}
@@ -394,14 +397,32 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 			# faces with a null lpTexLink_ptr have no texture link (nTexLink < nFace)
 			if hasattr(object, "texture_coords") and object.texture_coords and iface[0] < len(object.texture_coords):
 				tc = object.texture_coords[iface[0]]
+				uv0 = tc.uv_sets[0] if len(tc.uv_sets) > 0 else [PTTextureVertex()] * 3
+				uv1 = tc.uv_sets[1] if len(tc.uv_sets) > 1 else [PTTextureVertex()] * 3
 
 				prim["texcoord0buffer"].write((c_float*6)(
-					tc.vertices[0].u, 1-tc.vertices[0].v,
-					tc.vertices[1].u, 1-tc.vertices[1].v,
-					tc.vertices[2].u, 1-tc.vertices[2].v
+					uv0[0].u, 1-uv0[0].v,
+					uv0[1].u, 1-uv0[1].v,
+					uv0[2].u, 1-uv0[2].v
 				))
+
+				# TEXCOORD_1: secondary texture stage UVs (lightmaps over
+				# diffuse in the *LM_ dungeon stages) ride the NextTex chain
+				prim["texcoord1buffer"].write((c_float*6)(
+					uv1[0].u, 1-uv1[0].v,
+					uv1[1].u, 1-uv1[1].v,
+					uv1[2].u, 1-uv1[2].v
+				))
+
+				if len(tc.uv_sets) == 0:
+					prim["texcoord0"] = False
+					prim["texcoord1"] = False
+				elif len(tc.uv_sets) == 1:
+					prim["texcoord1"] = False
+					prim["texcoord0"] = prim["texcoord0"] and True
 			else:
-				prim["texcoord0buffer"] = None
+				prim["texcoord0"] = False
+				prim["texcoord1"] = False
 
 			# JOINTS_0
 			if hasattr(object, "physique") and object.physique:
@@ -651,6 +672,34 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 					mtl.occlusionTexture = TextureInfo(index = len(gltf.textures)-1)
 
+			# lightmap: chained second texture of *LM_ dungeon stage materials,
+			# exported as an occlusion map over TEXCOORD_1 (the engine adds the
+			# second stage with D3DTOP_ADD, smRend3d.cpp:3628-3630); consumers
+			# wanting baked-lighting previews can read it as AO
+			if material.texture_map.lightmap_path:
+				root, ext = get_filename(material.texture_map.lightmap_path)
+
+				if args.png:
+					uri = (root + ".png").lower()
+				else:
+					uri = (root + ext).lower()
+
+				texpath = os.path.join(fs_dir, uri)
+
+				if os.path.isfile(texpath):
+					gltf.images.append(Image(
+						uri = uri
+					))
+
+					gltf.textures.append(Texture(
+						source = len(gltf.images)-1
+					))
+
+					mtl.occlusionTexture = TextureInfo(
+						index = len(gltf.textures)-1,
+						texCoord = 1
+					)
+
 	""" MESHES """
 
 	for object in model.objects:
@@ -729,7 +778,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			p.attributes.NORMAL = len(gltf.buffers)-1
 
 			# TEXCOORD_0
-			if prim["texcoord0buffer"]:
+			if prim["texcoord0"]:
 				gltf.buffers.append(Buffer(
 					uri = "data:application/octet-stream;base64," + base64.b64encode(prim["texcoord0buffer"].get_data()).decode(),
 					byteLength = len(prim["texcoord0buffer"].data)
@@ -749,6 +798,28 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				))
 
 				p.attributes.TEXCOORD_0 = len(gltf.buffers)-1
+
+			# TEXCOORD_1
+			if prim["texcoord1"]:
+				gltf.buffers.append(Buffer(
+					uri = "data:application/octet-stream;base64," + base64.b64encode(prim["texcoord1buffer"].get_data()).decode(),
+					byteLength = len(prim["texcoord1buffer"].data)
+				))
+
+				gltf.bufferViews.append(BufferView(
+					buffer = len(gltf.buffers)-1,
+					byteLength = len(prim["texcoord1buffer"].data),
+					target = ARRAY_BUFFER
+				))
+
+				gltf.accessors.append(Accessor(
+					bufferView = len(gltf.bufferViews)-1,
+					componentType = FLOAT,
+					count = prim["count"],
+					type = "VEC2"
+				))
+
+				p.attributes.TEXCOORD_1 = len(gltf.buffers)-1
 
 			# JOINTS_0
 			if prim["joints0buffer"]:

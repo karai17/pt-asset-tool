@@ -121,98 +121,77 @@ def decode_stage_faces(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> lis
 	return faces
 
 
-# Multi-texture faces chain extra smTEXLINKs via NextTex. The loaders rebase
-# the stale pointers by element difference (smObj3d.cpp:2200-2221,
-# smStage3d.cpp:2436-2453). This decoder only resolves the primary link per
-# face; the chain walk is TODO.
-def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list[PTObjectTexture_Coord]:#, materials):
+# Faces store stale runtime addresses in lpTexLink_ptr / NextTex_ptr; the
+# loaders rebase them into array indices by element difference against the
+# first non-null address (smObj3d.cpp:2200-2221, smStage3d.cpp:2430-2453).
+# AddTexLink appends links in face order, so TexLink[0] belongs to the first
+# textured face and the smallest face pointer is TexLink[0]'s stale address.
+# Each face owns a chain of smTEXLINKs linked by NextTex: link 0 carries the
+# primary UV set, every further link one UV set for the material's secondary
+# texture stages (lightmaps over diffuse in the *LM_ dungeon stages). The
+# render loop walks the chain once per texture stage with the chain index as
+# the D3D texcoord index (smRend3d.cpp:3216-3250 SetD3DRendBuff).
+def decode_texlink_chain(texlinks: list, base: int, tex_index: int) -> list:
+	sets = []
+	seen = set()
+
+	while 0 <= tex_index < len(texlinks) and tex_index not in seen:
+		seen.add(tex_index)
+		sets.append(texlinks[tex_index])
+
+		if texlinks[tex_index].NextTex_ptr <= 0:
+			break
+
+		tex_index = int((texlinks[tex_index].NextTex_ptr - base) / sizeof(smTEXLINK))
+
+	return sets
+
+
+def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list[PTObjectTexture_Coord]:
 	texture_coords = []
 
 	# Some objects have no faces
 	if sm_stage.nFace <= 0:
 		return texture_coords
 
-	tlist = []
-	ptr = None
-
-	# We need to create a list of linked lists of textures that point to other
-	# textures. This linked list is used for multi-texture faces.
-
 	texlink_offset = sm_modelbuffer.tell()
-	# for _ in range(sm_stage.nTexLink):
-	# 	sm_texlink = sm_modelbuffer.read(smTEXLINK)
+	texlinks = [sm_modelbuffer.read(smTEXLINK) for _ in range(sm_stage.nTexLink)]
 
-	# 	if sm_texlink.NextTex_ptr > 0:
-	# 		ptr = sm_texlink.NextTex_ptr
-	# 		break
-
-	# sm_modelbuffer.seek(texlink_offset)
-	# for _ in range(sm_stage.nTexLink):
-	# 	sm_texlink = sm_modelbuffer.read(smTEXLINK)
-
-	# 	if not ptr:
-	# 		ptr = sm_texlink.NextTex_ptr
-
-	# 	tlist.append(max(-1, int((sm_texlink.NextTex_ptr - ptr) / sizeof(smTEXLINK))))
-
-	# ptr = None
-
+	# faces sit before the texlink array in the stage layout too (the caller
+	# has consumed vertices+faces); faces store stale addresses in file order
 	face_offset = texlink_offset - (sm_stage.nFace * sizeof(smSTAGE_FACE))
-	# Faces store stale addresses; the array index is recovered by differencing
-	# against the first non-null address, mirroring the C pointer rebasing
-	# (smStage3d.cpp:2444-2452: Face[cnt].lpTexLink = TexLink + (ptr - old)).
-	# Shipped files point face i at &TexLink[base + i], so the difference is
-	# a stable linear index.
+	sm_modelbuffer.seek(face_offset)
+
+	ptr = None
 	for i in range(sm_stage.nFace):
-		sm_modelbuffer.seek(face_offset + (i * sizeof(smSTAGE_FACE)))
 		sm_face = sm_modelbuffer.read(smSTAGE_FACE)
-
-		if sm_face.lpTexLink_ptr > 0:
-			ptr = sm_face.lpTexLink_ptr
-			break
-
-	for i in range(sm_stage.nFace):
-		sm_modelbuffer.seek(face_offset + (i * sizeof(smSTAGE_FACE)))
-		sm_face = sm_modelbuffer.read(smSTAGE_FACE)
-
-		if not ptr:
-			ptr = sm_face.lpTexLink_ptr
-
-		tex_id = max(-1, int((sm_face.lpTexLink_ptr - ptr) / sizeof(smTEXLINK)))
 		v = len(texture_coords) * 3
 
-		if tex_id >= 0:
-			sm_modelbuffer.seek(texlink_offset + (tex_id * sizeof(smTEXLINK)))
-			sm_texlink = sm_modelbuffer.read(smTEXLINK)
+		if ptr is None and sm_face.lpTexLink_ptr > 0:
+			ptr = sm_face.lpTexLink_ptr
 
-			# tex_id = tlist[tex_id] # TODO: multi textures via link list
-			# materials tell us how many textures are expected.
-			# light maps may be the texture after material textures
-			# light maps are packed as the UV2 texture, probably!
-
-			texture_coords.append(PTObjectTexture_Coord(
-				face = PTObjectFace(
-					vertices = [ v+0, v+1, v+2 ],
-					material_id = sm_face.Vertex[3]
-				),
-				vertices = [
+		if sm_face.lpTexLink_ptr > 0:
+			tex_index = int((sm_face.lpTexLink_ptr - ptr) / sizeof(smTEXLINK))
+			uv_sets = [
+				[
 					PTTextureVertex(u=sm_texlink.u[0], v=-sm_texlink.v[0]),
 					PTTextureVertex(u=sm_texlink.u[1], v=-sm_texlink.v[1]),
 					PTTextureVertex(u=sm_texlink.u[2], v=-sm_texlink.v[2])
 				]
-			))
+				for sm_texlink in decode_texlink_chain(texlinks, ptr, tex_index)
+			]
 		else:
-			texture_coords.append(PTObjectTexture_Coord(
-				face = PTObjectFace(
-					vertices = [ v+0, v+1, v+2 ],
-					material_id = sm_face.Vertex[3]
-				),
-				vertices = [
-					PTTextureVertex(u=0, v=-0),
-					PTTextureVertex(u=0, v=-0),
-					PTTextureVertex(u=0, v=-0)
-				]
-			))
+			uv_sets = []
+
+		texture_coords.append(PTObjectTexture_Coord(
+			face = PTObjectFace(
+				vertices = [ v+0, v+1, v+2 ],
+				material_id = sm_face.Vertex[3]
+			),
+			uv_sets = uv_sets
+		))
+
+	sm_modelbuffer.seek(texlink_offset + (sm_stage.nTexLink * sizeof(smTEXLINK)))
 
 	return texture_coords
 
@@ -431,30 +410,55 @@ def decode_actor_faces(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list
 	return faces
 
 
-# smTEXLINK i holds the UVs of face i: ReadASE_GEOMOBJECT calls AddTexLink
-# once per face in order (smRead3d.cpp:1543-1551) and AddTexLink appends and
-# links Face[n].lpTexLink = &TexLink[nTexLink] (smObj3d.cpp:590-618).
+# smTEXLINK i holds the primary UV set of face i: ReadASE_GEOMOBJECT calls
+# AddTexLink once per face in order (smRead3d.cpp:1543-1551) and AddTexLink
+# appends and links Face[n].lpTexLink = &TexLink[nTexLink] (smObj3d.cpp:590-618).
+# Faces with multiple textures chain extra links via NextTex
+# (smObj3d.cpp:613-625); walk them into extra uv_sets.
 # UV v was stored as 1-fv at import (smRead3d.cpp:1548), so 1-v undoes it.
 def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTObjectTexture_Coord]:
 	texture_coords = []
 
 	# Some objects have no texture links
-	if sm_object.nTexLink <= 0:
+	if sm_object.nTexLink <= 0 or sm_object.nFace <= 0:
 		return texture_coords
 
-	for i in range(sm_object.nTexLink):
+	texlink_offset = sm_modelbuffer.tell()
+	texlinks = [sm_modelbuffer.read(smTEXLINK) for _ in range(sm_object.nTexLink)]
+
+	# faces sit before the texlink array in the actor layout
+	face_offset = texlink_offset - (sm_object.nFace * sizeof(smFACE))
+	sm_modelbuffer.seek(face_offset)
+
+	ptr = None
+	for i in range(sm_object.nFace):
+		sm_face = sm_modelbuffer.read(smFACE)
 		v = i * 3
-		sm_texlink = sm_modelbuffer.read(smTEXLINK)
+
+		if ptr is None and sm_face.lpTexLink_ptr > 0:
+			ptr = sm_face.lpTexLink_ptr
+
+		if sm_face.lpTexLink_ptr > 0:
+			tex_index = int((sm_face.lpTexLink_ptr - ptr) / sizeof(smTEXLINK))
+			uv_sets = [
+				[
+					PTTextureVertex(u=sm_texlink.u[0], v=1-sm_texlink.v[0]),
+					PTTextureVertex(u=sm_texlink.u[1], v=1-sm_texlink.v[1]),
+					PTTextureVertex(u=sm_texlink.u[2], v=1-sm_texlink.v[2])
+				]
+				for sm_texlink in decode_texlink_chain(texlinks, ptr, tex_index)
+			]
+		else:
+			uv_sets = []
+
 		texture_coords.append(PTObjectTexture_Coord(
 			face = PTObjectFace(
 				vertices = [ v+0, v+1, v+2 ]
 			),
-			vertices = [
-				PTTextureVertex(u=sm_texlink.u[0], v=1-sm_texlink.v[0]),
-				PTTextureVertex(u=sm_texlink.u[1], v=1-sm_texlink.v[1]),
-				PTTextureVertex(u=sm_texlink.u[2], v=1-sm_texlink.v[2])
-			]
+			uv_sets = uv_sets
 		))
+
+	sm_modelbuffer.seek(texlink_offset + (sm_object.nTexLink * sizeof(smTEXLINK)))
 
 	return texture_coords
 
@@ -574,6 +578,7 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 		material = PTModelMaterial()
 		material.name = decode_material_name(sm_material.UseState, sm_material.BlendType)
 		material.num_textures = sm_material.TextureCounter
+		material.num_anim_textures = sm_material.AnimTexCounter
 		material.ambient = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ] # not in SMD, defaulting to diffuse
 		material.diffuse = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ]
 		material.specular = [ 0.9, 0.9, 0.9 ]
@@ -667,12 +672,23 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 				)
 				material.texture_map.diffuse_path = texpaths[0] # diffuse texture is the first texture
 
+			# The second texture stage rides the NextTex chain as TEXCOORD_1 and is
+			# added on top of the diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630):
+			# baked *LightingMap.bmp lightmaps in the *LM_ dungeon stages, or
+			# selfillum maps elsewhere (e.g. actor glow maps)
 			if len(texpaths) == 2:
-				material.texture_map.selfillum_name = decode_texture_map_name(
-					sm_material.TextureStageState[1],
-					sm_material.TextureFormState[1]
-				)
-				material.texture_map.selfillum_path = texpaths[1] # self illumination texture is the second texture
+				if "lightingmap" in texpaths[1].casefold():
+					material.texture_map.lightmap_name = decode_texture_map_name(
+						sm_material.TextureStageState[1],
+						sm_material.TextureFormState[1]
+					)
+					material.texture_map.lightmap_path = texpaths[1]
+				else:
+					material.texture_map.selfillum_name = decode_texture_map_name(
+						sm_material.TextureStageState[1],
+						sm_material.TextureFormState[1]
+					)
+					material.texture_map.selfillum_path = texpaths[1] # self illumination texture is the second texture
 
 			# MapOpacity != 0 means *MAP_OPACITY in the ASE; the engine loads the
 			# diffuse bitmap with the opacity map as its NameA (smTexture.cpp:874-912)
