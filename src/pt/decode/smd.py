@@ -5,7 +5,7 @@ from ctypes import *
 from pt.buffer import BufferReader
 from pt.cdef import *
 from pt.pdef import *
-from pt.utils import decode_string, get_filename
+from pt.utils import decode_string, get_filename, sm_tm_to_np, sm_tm_parent_local, decompose_rotation
 from pt.const import (
 	STAGE_SIGNATURE,
 	ACTOR_SIGNATURE,
@@ -239,6 +239,27 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 	if has_bones or manipulated == 0:
 		manipulated = 256
 
+	cm = sm_tm_to_np(sm_object.Tm, manipulated)
+	local = cm
+	if sm_object_parent:
+		local = sm_tm_parent_local(cm, sm_tm_to_np(sm_object_parent.Tm, manipulated))
+		if local is None:
+			local = cm
+
+	position = PTVector3(
+		x = local[3][0],
+		y = local[3][1],
+		z = local[3][2]
+	)
+
+	rotation, fix_scale, flipped = decompose_rotation(local)
+
+	scale = PTVector3(
+		x = sm_object.sx / 256 * fix_scale[0],
+		y = sm_object.sy / 256 * fix_scale[1],
+		z = sm_object.sz / 256 * fix_scale[2] * (-1 if flipped else 1)
+	)
+
 	return PTObjectTransform(
 		_11 = sm_object.Tm._11 / 256 * manipulated / 256,
 		_12 = sm_object.Tm._12 / 256 * manipulated / 256,
@@ -257,24 +278,9 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 		_43 = sm_object.Tm._43 / 256,
 		_44 = 1,
 
-		rotation = PTQuaternion(
-			x = sm_object.qx,
-			y = sm_object.qy,
-			z = sm_object.qz,
-			w = sm_object.qw
-		),
-
-		position = PTVector3(
-			x = sm_object.px / 256,
-			y = sm_object.py / 256,
-			z = sm_object.pz / 256
-		),
-
-		scale = PTVector3(
-			x = sm_object.sx / 256,
-			y = sm_object.sy / 256,
-			z = sm_object.sz / 256
-		)
+		rotation = rotation,
+		position = position,
+		scale = scale
 	)
 
 
@@ -341,6 +347,21 @@ def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D
 	return texture_coords
 
 
+def key_frame_window(sm_object: smOBJ3D, count: int, frames: list) -> tuple[int, int]:
+	"""
+	Engine key arrays are preallocated and only the window described by the first
+	valid smFRAME_POS entry is written; the rest stays uninitialized in memory and
+	is serialized as 0xCDCDCDCD garbage.
+	Reference: smObj3d.cpp::GetTmFrameRot reads keys at [PosNum, PosNum+PosCnt)
+	only when TmFrameCnt > 0 and PosCnt > 0.
+	"""
+	if sm_object.TmFrameCnt > 0:
+		for f in frames:
+			if f.PosCnt > 0 and 0 <= f.PosNum and f.PosNum + f.PosCnt <= count:
+				return f.PosNum, f.PosNum + f.PosCnt
+	return 0, count
+
+
 def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> tuple[PTActorAnimation, int]:
 	animation = PTActorAnimation()
 	last_frame = None
@@ -349,45 +370,55 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 	if sm_object.TmRotCnt + sm_object.TmPosCnt + sm_object.TmScaleCnt == 0:
 		return animation, 100 # default value
 
+	rot_window = key_frame_window(sm_object, sm_object.TmRotCnt, sm_object.TmRotFrame)
+	pos_window = key_frame_window(sm_object, sm_object.TmPosCnt, sm_object.TmPosFrame)
+	scl_window = key_frame_window(sm_object, sm_object.TmScaleCnt, sm_object.TmScaleFrame)
+
+	rot_start, rot_end = rot_window
+	pos_start, pos_end = pos_window
+	scl_start, scl_end = scl_window
+
 	for i in range(sm_object.TmRotCnt):
 		sm_rotation = sm_modelbuffer.read(smTM_ROT)
-		animation.rotation.append(PTAnimationRotation(
-			frame = sm_rotation.frame,
-			x = sm_rotation.x,
-			y = sm_rotation.y,
-			z = sm_rotation.z,
-			w = sm_rotation.w
-		))
+		if rot_start <= i < rot_end:
+			animation.rotation.append(PTAnimationRotation(
+				frame = sm_rotation.frame,
+				x = sm_rotation.x,
+				y = sm_rotation.y,
+				z = sm_rotation.z,
+				w = sm_rotation.w
+			))
 
-		if not last_frame and i == sm_object.TmRotCnt-1:
-			last_frame = sm_rotation.frame
+			if not last_frame and i == rot_end-1:
+				last_frame = sm_rotation.frame
 
 	for i in range(sm_object.TmPosCnt):
 		sm_position = sm_modelbuffer.read(smTM_POS)
-		animation.position.append(PTAnimationPosition(
-			frame = sm_position.frame,
-			x = sm_position.x,
-			y = sm_position.y,
-			z = sm_position.z
-		))
+		if pos_start <= i < pos_end:
+			animation.position.append(PTAnimationPosition(
+				frame = sm_position.frame,
+				x = sm_position.x,
+				y = sm_position.y,
+				z = sm_position.z
+			))
 
-		if not last_frame and i == sm_object.TmPosCnt-1:
-			last_frame = sm_position.frame
+			if not last_frame and i == pos_end-1:
+				last_frame = sm_position.frame
 
 	for i in range(sm_object.TmScaleCnt):
 		sm_scale = sm_modelbuffer.read(smTM_SCALE)
-		animation.scale.append(PTAnimationScale(
-			frame = sm_scale.frame,
-			x = sm_scale.x / 256,
-			y = sm_scale.y / 256,
-			z = sm_scale.z / 256
-		))
+		if scl_start <= i < scl_end:
+			animation.scale.append(PTAnimationScale(
+				frame = sm_scale.frame,
+				x = sm_scale.x / 256,
+				y = sm_scale.y / 256,
+				z = sm_scale.z / 256
+			))
 
-		if not last_frame and i == sm_object.TmScaleCnt-1:
+		if not last_frame and i == scl_end-1:
 			last_frame = sm_scale.frame
 
 	for _ in range(sm_object.TmRotCnt):
-		# jump pointer ahead
 		sm_modelbuffer.read(smFMATRIX)
 
 	return animation, last_frame
@@ -397,10 +428,6 @@ def decode_actor_physique(sm_modelbuffer: BufferReader, sm_object: smOBJ3D, has_
 	physique = []
 
 	if has_bones:
-		# jump pointer ahead
-		for _ in range(sm_object.TmRotCnt): # TODO: are these needed anywhere?
-			sm_modelbuffer.read(smFMATRIX)
-
 		for _ in range(sm_object.nVertex):
 			# each string is 32 bytes
 			sm_physique = sm_modelbuffer.read(c_ubyte * 32)
@@ -619,37 +646,35 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 	# If there is not bone data, get the last frame from the model data.
 	elif sm_fileheader.ObjCounter > 0:
 		sm_modelbuffer.seek(sm_fileheader.First_ObjInfoPoint)
+		max_frame = 0
 
 		for _ in range(sm_fileheader.ObjCounter):
 			sm_object = sm_modelbuffer.read(smOBJ3D)
+			frame = 0
 
-			# If the object has transform data, get the last frame from this object.
-			if sm_object.TmRotCnt + sm_object.TmPosCnt + sm_object.TmScaleCnt > 0:
-				# jump pointer ahead
-				for _ in range(sm_object.nVertex): sm_modelbuffer.read(smVERTEX)
-				for _ in range(sm_object.nFace): sm_modelbuffer.read(smFACE)
-				for _ in range(sm_object.nTexLink): sm_modelbuffer.read(smTEXLINK)
+			# jump pointer ahead
+			for _ in range(sm_object.nVertex): sm_modelbuffer.read(smVERTEX)
+			for _ in range(sm_object.nFace): sm_modelbuffer.read(smFACE)
+			for _ in range(sm_object.nTexLink): sm_modelbuffer.read(smTEXLINK)
 
-				# jump pointer ahead to last rotation
-				if sm_object.TmRotCnt > 0:
-					for _ in range(sm_object.TmRotCnt):
-						sm_rotation = sm_modelbuffer.read(smTM_ROT)
-					model.scene.last_frame = int(sm_rotation.frame / model.scene.ticks_per_frame)
-					break
+			for _ in range(sm_object.TmRotCnt):
+				sm_rotation = sm_modelbuffer.read(smTM_ROT)
+				frame = sm_rotation.frame
 
-				# jump pointer ahead to last position
-				if sm_object.TmPosCnt > 0:
-					for _ in range(sm_object.TmPosCnt):
-						sm_position = sm_modelbuffer.read(smTM_POS)
-					model.scene.last_frame = int(sm_position.frame / model.scene.ticks_per_frame)
-					break
+			for _ in range(sm_object.TmPosCnt):
+				sm_position = sm_modelbuffer.read(smTM_POS)
+				frame = sm_position.frame
 
-				# jump pointer ahead to last scale
-				if sm_object.TmScaleCnt > 0:
-					for _ in range(sm_object.TmScaleCnt):
-						sm_scale = sm_modelbuffer.read(smTM_SCALE)
-					model.scene.last_frame = int(sm_scale.frame / model.scene.ticks_per_frame)
-					break
+			max_frame = max(max_frame, frame)
+
+			# jump pointer ahead
+			for _ in range(sm_object.TmScaleCnt): sm_modelbuffer.read(smTM_SCALE)
+			for _ in range(sm_object.TmRotCnt): sm_modelbuffer.read(smFMATRIX)
+
+			if sm_object.Physique_ptr > 0:
+				for _ in range(sm_object.nVertex): sm_modelbuffer.read(c_ubyte * 32)
+
+		model.scene.last_frame = int(max_frame / model.scene.ticks_per_frame)
 
 	""" MATERIAL """
 
@@ -675,42 +700,41 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			# Reference: smObj3d.cpp::smOBJ3D::SaveFile (lines ~2117 -> 2121)
 			if sm_object.Head != OBJECT_HEAD and sm_object.Head != OBJECT_HEAD_OLD:
 				print(f"Mesh object #{i} has an invalid header: {sm_object.Head}")
-				return
+				return model
 
 			object = PTActorObject()
 			object.name = decode_string(sm_object.NodeName)
 
-			# filter out objects we don't want such as low quality meshes
 			found = False
 			if metadata:
 				for model_name in metadata.model_names:
-					if model_name == object.name:
+					if model_name.casefold() == object.name.casefold():
 						found = True
 						break
 			else:
 				found = True
 
+			has_bones = True if sm_object.Physique_ptr > 0 else False
+
+			parent = decode_string(sm_object.NodeParent)
+			object.parent = parent if len(parent) > 0 else None
+			sm_object_parent = decode_actor_parent(object.parent)
+
+			object.num_vertices = sm_object.nVertex
+			object.num_faces = sm_object.nFace
+			object.num_texture_links = sm_object.nTexLink
+			object.num_tfm_rotations = sm_object.TmRotCnt
+			object.num_tfm_positions = sm_object.TmPosCnt
+			object.num_tfm_scales = sm_object.TmScaleCnt
+
+			object.vertices = decode_actor_vertices(sm_modelbuffer, sm_object)
+			object.faces = decode_actor_faces(sm_modelbuffer, sm_object)
+			object.texture_coords = decode_actor_texture_coords(sm_modelbuffer, sm_object)
+			object.animation, _ = decode_actor_animation(sm_modelbuffer, sm_object)
+			object.physique = decode_actor_physique(sm_modelbuffer, sm_object, has_bones)
+			object.transform = decode_actor_transform(sm_object, sm_object_parent, has_bones)
+
 			if found:
-				has_bones = True if sm_object.Physique_ptr > 0 else False
-
-				parent = decode_string(sm_object.NodeParent)
-				object.parent = parent if len(parent) > 0 else None
-				sm_object_parent = decode_actor_parent(object.parent)
-
-				object.num_vertices = sm_object.nVertex
-				object.num_faces = sm_object.nFace
-				object.num_texture_links = sm_object.nTexLink
-				object.num_tfm_rotations = sm_object.TmRotCnt
-				object.num_tfm_positions = sm_object.TmPosCnt
-				object.num_tfm_scales = sm_object.TmScaleCnt
-
-				object.vertices = decode_actor_vertices(sm_modelbuffer, sm_object)
-				object.faces = decode_actor_faces(sm_modelbuffer, sm_object)
-				object.texture_coords = decode_actor_texture_coords(sm_modelbuffer, sm_object)
-				object.animation, _ = decode_actor_animation(sm_modelbuffer, sm_object)
-				object.physique = decode_actor_physique(sm_modelbuffer, sm_object, has_bones)
-				object.transform = decode_actor_transform(sm_object, sm_object_parent, has_bones)
-
 				# NOTE: this is used on objects without rotation frames
 				# Reference: @Rovug from RageZone Priston Tale Discord
 				object.transform_rotate._11 = sm_object.TmRotate._11 / 256

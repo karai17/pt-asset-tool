@@ -85,6 +85,10 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 		outpath = os.path.join(args.output, filepath)
 		fdata = inx.decode(inpath)
 
+		if not fdata:
+			print(f"Invalid INX file: {filepath}")
+			continue
+
 		if args.json:
 			root, ext = os.path.splitext(outpath)
 			jsonpath = Path(root + ".json")
@@ -125,6 +129,10 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
 		fdata = smd.decode(inpath)
+
+		if not fdata:
+			print(f"Invalid SMD file: {filepath}")
+			continue
 
 		if args.json:
 			root, ext = os.path.splitext(outpath)

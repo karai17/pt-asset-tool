@@ -37,7 +37,7 @@ def decode(path: str) -> PTServerCharacter:
 					character.sell_weapons = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
 				case NPC.SellDefenceItem:
 					character.sell_defences = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
-				case NPC.SellEtcItem:
+				case NPC.SellEtcItemCount:
 					character.sell_misc = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
 				case NPC.SkillMaster:
 					character.skill_master = True

@@ -38,11 +38,13 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 	dirpath = os.path.sep.join(segments[:-1])
 
 	modelfilename = decode_string(sm_modelinfo.szModelFile)
+	modelpath = None
 	if modelfilename:
 		modelroot, modelext = get_filename(modelfilename)
 		modelpath = os.path.join(dirpath, modelroot + ".smd")
 
 	motionfilename = decode_string(sm_modelinfo.szMotionFile)
+	motionpath = None
 	if motionfilename:
 		motionroot, motionext = get_filename(motionfilename)
 		motionpath = os.path.join(dirpath, motionroot + ".smb")
@@ -66,7 +68,7 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 			decode_motion(sm_motioninfo)
 
 			animation = PTMotionMetadata()
-			animation.name = CHRMOTION_STATE[sm_motioninfo.State]
+			animation.name = CHRMOTION_STATE.get(sm_motioninfo.State, "unknown")
 			animation.start_frame = sm_motioninfo.StartFrame
 			animation.end_frame = sm_motioninfo.EndFrame
 			animation.repeat = True if sm_motioninfo.Repeat != 0 else False

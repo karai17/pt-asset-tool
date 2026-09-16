@@ -391,7 +391,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 				prim["normalbuffer"].write((c_float*3)(normal.x, normal.y, normal.z))
 
 			# TEXCOORD_0
-			if hasattr(object, "texture_coords") and object.texture_coords:
+			if hasattr(object, "texture_coords") and object.texture_coords and iface[0] < len(object.texture_coords):
 				tc = object.texture_coords[iface[0]]
 
 				prim["texcoord0buffer"].write((c_float*6)(
@@ -514,7 +514,10 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			))
 
 			np_m = trs_to_np_matrix(position, rotation, scale)
-			np_w = np.linalg.inv(np_m) # lol it's an inverted m ;D
+			try:
+				np_w = np.linalg.inv(np_m) # lol it's an inverted m ;D
+			except np.linalg.LinAlgError:
+				np_w = np.identity(4)
 
 			if bone._parent:
 				np_pw = inverse_base[bone._parent._id]

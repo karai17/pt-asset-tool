@@ -114,6 +114,52 @@ def matrix_to_quaternion(m: PTMat4) -> PTQuaternion:
 	return q
 
 
+def quaternion_from_matrix(m: npt.NDArray[np.floating]) -> PTQuaternion:
+	"""Quaternion from a 3x3 (or the 3x3 block of a 4x4) rotation matrix using
+	Shepperd's method: all four branches are selected by the largest diagonal
+	element, which stays numerically stable where a single trace-based formula
+	degenerates (trace near or below -1, e.g. matrices carrying baked scale
+	shrink such as Raeda's clavicle Tm). Returns a unit quaternion; a
+	non-orthonormal input yields an approximation of the rotation."""
+	t = np.asarray(m, dtype=np.float64)
+	trace = t[0, 0] + t[1, 1] + t[2, 2]
+
+	if trace > 0:
+		s = math.sqrt(trace + 1.0) * 2
+		q = PTQuaternion(
+			x = (t[2, 1] - t[1, 2]) / s,
+			y = (t[0, 2] - t[2, 0]) / s,
+			z = (t[1, 0] - t[0, 1]) / s,
+			w = 0.25 * s
+		)
+	elif t[0, 0] > t[1, 1] and t[0, 0] > t[2, 2]:
+		s = math.sqrt(1.0 + t[0, 0] - t[1, 1] - t[2, 2]) * 2
+		q = PTQuaternion(
+			x = 0.25 * s,
+			y = (t[0, 1] + t[1, 0]) / s,
+			z = (t[0, 2] + t[2, 0]) / s,
+			w = (t[2, 1] - t[1, 2]) / s
+		)
+	elif t[1, 1] > t[2, 2]:
+		s = math.sqrt(1.0 + t[1, 1] - t[0, 0] - t[2, 2]) * 2
+		q = PTQuaternion(
+			x = (t[0, 1] + t[1, 0]) / s,
+			y = 0.25 * s,
+			z = (t[1, 2] + t[2, 1]) / s,
+			w = (t[0, 2] - t[2, 0]) / s
+		)
+	else:
+		s = math.sqrt(1.0 + t[2, 2] - t[0, 0] - t[1, 1]) * 2
+		q = PTQuaternion(
+			x = (t[0, 2] + t[2, 0]) / s,
+			y = (t[1, 2] + t[2, 1]) / s,
+			z = 0.25 * s,
+			w = (t[1, 0] - t[0, 1]) / s
+		)
+
+	return normalize_quaternion(q)
+
+
 def angles_to_quaternion(x: int, y: int, z: int) -> PTQuaternion:
 	"""
 		Convert Priston Tale's 4096 unit angles to a quaternion.
@@ -212,6 +258,56 @@ def trs_to_np_matrix(t: PTVector3, r: PTQuaternion, s: PTVector3) -> npt.NDArray
 	np_rsm = np_rm @ np_sm
 	np_rsm[:3, 3] = np.array([t.x, t.y, t.z])
 	return np_rsm
+
+
+def sm_tm_to_np(tm, scale_fixup: int = 256) -> npt.NDArray[np.float64]:
+	"""Convert a raw ctypes smMATRIX to a float64 4x4 in the engine's row-major
+	layout (translation in the last row). Fields are 8.8 fixed point against the
+	fONE base (smType.h:21-24); the engine converts with smFMatrixFromMatrix
+	(smmatrix.cpp:863, /fONE). scale_fixup mirrors the ReformTM rescaling
+	(Tm._ij = (Tm._ij << FLOATNS) / scale, smObj3d.cpp:933-961) that the engine
+	applies to the rotation rows before building animation matrices; it is the
+	identity for the unit-scale (256) bones of every shipped model."""
+	fix = scale_fixup / 256.0
+	return np.array([
+		[tm._11 / 256.0 * fix, tm._12 / 256.0 * fix, tm._13 / 256.0 * fix, 0.0],
+		[tm._21 / 256.0 * fix, tm._22 / 256.0 * fix, tm._23 / 256.0 * fix, 0.0],
+		[tm._31 / 256.0 * fix, tm._32 / 256.0 * fix, tm._33 / 256.0 * fix, 0.0],
+		[tm._41 / 256.0, tm._42 / 256.0, tm._43 / 256.0, 1.0]
+	], dtype=np.float64)
+
+
+def sm_tm_parent_local(child: npt.NDArray[np.float64], parent: npt.NDArray[np.float64]) -> npt.NDArray[np.float64] | None:
+	"""Parent-local transform of a bone from the engine's accumulated world
+	matrices: qmat = Tm * pParent->TmInvert (the static branch of
+	smOBJ3D::TmAnimation, smObj3d.cpp). Returns None when the parent matrix is
+	singular - the engine's smMatrixInvert also produces garbage there
+	(degenerate helper bones), and the result is never sampled."""
+	try:
+		return child @ np.linalg.inv(parent)
+	except np.linalg.LinAlgError:
+		return None
+
+
+def decompose_rotation(m: npt.NDArray[np.float64]) -> tuple[PTQuaternion, npt.NDArray[np.float64], bool]:
+	"""Decompose the 3x3 rotation block of a row-major 4x4 into quaternion +
+	per-axis scale. Authored bone matrices may carry baked uniform scale (det
+	magnitude != 1) or a mirror (det < 0); the engine renders them as matrices
+	so nothing stops an exporter from emitting them. Scale is removed before
+	quaternion extraction (a shrink below ~0.5 pushes the matrix trace negative
+	and misroutes a naive trace-based extraction into the 180-degree branch),
+	and the mirror is recorded as a negative scale component - the glTF
+	convention for flipped chains. Returns (quaternion, scale vector, flipped)."""
+	scale = np.linalg.norm(m[:3, :3], axis=1)
+	scale[scale < 1e-9] = 1.0
+
+	r = m[:3, :3] / scale[:, np.newaxis]
+	det = np.linalg.det(r)
+	flipped = det < 0
+	if flipped:
+		r[:, 2] *= -1
+
+	return quaternion_from_matrix(r), scale, flipped
 
 
 """PRIMITIVES"""
