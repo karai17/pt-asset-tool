@@ -1,9 +1,26 @@
+"""
+ctypes mirrors of the original engine structs.
+
+All structs are defined in the original C++ source under
+.local/PTClassic/src/smLib3d unless noted otherwise:
+- src/smLib3d/smType.h: smMATRIX, smFMATRIX, smTEXLINK, smVERTEX, smFACE, smTM_ROT, smTM_POS,
+	smTM_SCALE, smMATERIAL, smMOTIONINFO, smMODELINFO, smLIGHT3D,
+	smSTAGE_VERTEX, smSTAGE_FACE, _MODELGROUP
+- src/smLib3d/smObj3d.h: smFRAME_POS, smDFILE_HEADER, smDFILE_OBJINFO, class smOBJ3D
+- src/smLib3d/smTexture.h: class smMATERIAL_GROUP
+- src/smLib3d/smStage3d.h: class smSTAGE3D
+- src/smLib3d/smPacket.h: smCHAR_INFO, smTRNAS_PLAYERINFO
+- src/Server/onserver.h: STG_START_POINT
+"""
+
+
 from ctypes import *
 
 
 """TRANSFORMS"""
 
 
+# Reference: smType.h:197 struct smTM_ROT
 class smTM_ROT(LittleEndianStructure):
 	# 20 bytes
 	_fields_ = [
@@ -12,6 +29,7 @@ class smTM_ROT(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:208 struct smTM_POS
 class smTM_POS(LittleEndianStructure):
 	# 16 bytes
 	_fields_ = [
@@ -20,6 +38,7 @@ class smTM_POS(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:214 struct smTM_SCALE
 class smTM_SCALE(LittleEndianStructure):
 	# 16 bytes
 	_fields_ = [
@@ -36,8 +55,11 @@ class smTM_SCALE(LittleEndianStructure):
 # backwards. When you do A * B, it secretly does B * A. Note that instead of
 # _ij order, the operation in the reference is _ji.
 # Reference: smmatrix.cpp::smMatrixMult.
+# Matrices are 16.16 fixed point; the translation row is 1/256 fixed point
+# (fONE = 256, FLOATNS = 8, smType.h:21-24).
 
 
+# Reference: smType.h:84 struct smMATRIX
 class smMATRIX(LittleEndianStructure):
 	# 64 bytes
 	_fields_ = [
@@ -48,6 +70,7 @@ class smMATRIX(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:109 struct smFMATRIX
 class smFMATRIX(LittleEndianStructure):
 	# 64 bytes
 	_fields_ = [
@@ -61,6 +84,7 @@ class smFMATRIX(LittleEndianStructure):
 """PRIMITIVES"""
 
 
+# Reference: smType.h:592 struct smMATERIAL
 class smMATERIAL(LittleEndianStructure):
 	# 320 bytes
 	_fields_ = [
@@ -92,7 +116,7 @@ class smMATERIAL(LittleEndianStructure):
 		("AnimationFrame", c_uint32)
 	]
 
-
+# Reference: smType.h:184 struct smVERTEX (normals unused by the file decoders)
 class smVERTEX(LittleEndianStructure):
 	# 24 bytes
 	_fields_ = [
@@ -101,6 +125,8 @@ class smVERTEX(LittleEndianStructure):
 ]
 
 
+# Reference: smType.h:189 struct smFACE. v[3] is the material id (comment
+# "matrial" [sic]); t UVs are serialized dead weight, real UVs live in smTEXLINK.
 class smFACE(LittleEndianStructure):
 	# 36 bytes
 	_fields_ = [
@@ -110,6 +136,9 @@ class smFACE(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:178 struct smTEXLINK. NextTex_ptr chains multi-texture
+# faces; on disk both pointer fields hold stale runtime addresses that the
+# loaders convert to array indices by pointer difference (smObj3d.cpp:2207).
 class smTEXLINK(LittleEndianStructure):
 	# 32 bytes
 	_fields_ = [
@@ -135,7 +164,9 @@ class RECT(LittleEndianStructure):
 		("bottom", c_int32)
 	]
 
-
+# Reference: smType.h:300 struct smSTAGE_VERTEX. The struct comment claims
+# "RGBA" but the engine color macros (smType.h:59-62 SMC_B=0, SMC_G=1,
+# SMC_R=2, SMC_A=3) make the stored order BGRA.
 class smSTAGE_VERTEX(LittleEndianStructure):
 	# 28 bytes
 	_fields_ = [
@@ -146,6 +177,7 @@ class smSTAGE_VERTEX(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:315 struct smSTAGE_FACE. Vertex[3] is the material id.
 class smSTAGE_FACE(LittleEndianStructure):
 	# 28 bytes
 	_fields_ = [
@@ -156,7 +188,8 @@ class smSTAGE_FACE(LittleEndianStructure):
 		("VectNormal", c_int16 * 4)
 	]
 
-
+# Reference: smType.h:124 struct smLIGHT3D. 26 bytes of payload padded to 28
+# on disk; the 28-byte stride is confirmed by smSTAGE3D::LoadFile reads.
 class smLIGHT3D(LittleEndianStructure):
 	# 26 bytes
 	_fields_ = [
@@ -170,6 +203,8 @@ class smLIGHT3D(LittleEndianStructure):
 """CHARACTERS"""
 
 
+# Reference: smType.h:408 struct smMOTIONINFO (MOTION_TOOL_MAX = 52,
+# MOTION_SKIL_MAX = 8, smType.h:386-390)
 class smMOTIONINFO(LittleEndianStructure):
 	# 117 bytes (120?)
 	_fields_ = [
@@ -190,6 +225,10 @@ class smMOTIONINFO(LittleEndianStructure):
 	]
 
 
+# Obfuscated variant used by newer INX files: ItemCodeList widened from 8 to
+# 16 bits (motion tool codes outgrew a byte), growing the struct 120 -> 172.
+# No such struct exists in the original source; the shipped client reads
+# smMODELINFO (120-byte entries) and misparses EX files in exactly this way.
 class smMOTIONINFO_EX(LittleEndianStructure):
 	# 169 bytes (172?)
 	_fields_ = [
@@ -210,6 +249,7 @@ class smMOTIONINFO_EX(LittleEndianStructure):
 	]
 
 
+# Reference: smType.h:435 struct _MODELGROUP
 class _MODELGROUP(LittleEndianStructure):
 	# 68 bytes
 	_fields_ = [
@@ -217,7 +257,8 @@ class _MODELGROUP(LittleEndianStructure):
 		("szModelName", (c_byte * 16) * 4),
 	]
 
-
+# Reference: smType.h:440 struct smMODELINFO (MOTION_INFO_MAX = 512,
+# NPC_MOTION_INFO_MAX = TALK_MOTION_INFO_MAX = 30, smType.h:386-398)
 class smMODELINFO(LittleEndianStructure):
 	# 67084 bytes
 	_fields_ = [
@@ -242,7 +283,8 @@ class smMODELINFO(LittleEndianStructure):
 		("TalkMotionRateCnt", (c_int32 * 100) * 2)
 	]
 
-
+# Python-side variant matching the 95268-byte INX files produced by newer
+# tooling (shipped client cannot read these; see smMOTIONINFO_EX).
 class smMODELINFO_EX(LittleEndianStructure):
 	# 95268 bytes (67084 + 28184)
 	_fields_ = [
@@ -271,6 +313,7 @@ class smMODELINFO_EX(LittleEndianStructure):
 """FILE STRUCTURES"""
 
 
+# Reference: smObj3d.h:44 struct smFRAME_POS (OBJ_FRAME_SEARCH_MAX = 32)
 class smFRAME_POS(LittleEndianStructure):
 	# 16 bytes
 	_fields_ = [
@@ -281,6 +324,7 @@ class smFRAME_POS(LittleEndianStructure):
 	]
 
 
+# Reference: smObj3d.h:51 struct smDFILE_HEADER
 class smDFILE_HEADER(LittleEndianStructure):
 	# 556 bytes
 	_fields_ = [
@@ -294,6 +338,7 @@ class smDFILE_HEADER(LittleEndianStructure):
 	]
 
 
+# Reference: smObj3d.h:61 struct smDFILE_OBJINFO
 class smDFILE_OBJINFO(LittleEndianStructure):
 	# 40 bytes
 	_fields_ = [
@@ -303,6 +348,7 @@ class smDFILE_OBJINFO(LittleEndianStructure):
 	]
 
 
+# Reference: smTexture.h:102 class smMATERIAL_GROUP
 class smMATERIAL_GROUP(LittleEndianStructure):
 	# 88 bytes
 	_fields_ = [
@@ -316,6 +362,9 @@ class smMATERIAL_GROUP(LittleEndianStructure):
 	]
 
 
+# Reference: smObj3d.h:76 class smOBJ3D. Fields marked "unused" are runtime
+# scratch that is serialized by smOBJ3D::SaveFile (smObj3d.cpp:2110) but not
+# consumed from disk by smOBJ3D::LoadFile (smObj3d.cpp:2146).
 class smOBJ3D(LittleEndianStructure):
 	# 2236 bytes
 	_fields_ = [
@@ -368,6 +417,7 @@ class smOBJ3D(LittleEndianStructure):
 	]
 
 
+# Reference: smStage3d.h:12 class smSTAGE3D
 class smSTAGE3D(LittleEndianStructure):
 	# 262260 bytes
 	_fields_ = [
@@ -402,6 +452,9 @@ class smSTAGE3D(LittleEndianStructure):
 """SERVER"""
 
 
+# Reference: Server/onserver.h:88 struct STG_START_POINT (one element of
+# STG_AREA::StartPoint[STG_START_POINT_MAX]; onserver.h:75 and :141).
+# Saved/loaded as a flat 200-entry array (OnSever.cpp:7052 LoadStartPoint).
 class STG_START_POINT(LittleEndianStructure):
 	# 12 bytes
 	_fields_ = [
@@ -410,6 +463,7 @@ class STG_START_POINT(LittleEndianStructure):
 	]
 
 
+# Reference: smPacket.h:644 struct smCHAR_INFO
 class smCHAR_INFO(LittleEndianStructure):
 	# 472 bytes
 	_fields_ = [
@@ -479,6 +533,11 @@ class smCHAR_INFO(LittleEndianStructure):
 	]
 
 
+# Reference: smPacket.h:1863 struct smTRNAS_PLAYERINFO [sic]. Used as one
+# element of STG_AREA::TransCharFixed[FIX_CHAR_MAX] (onserver.h:123 and :143,
+# FIX_CHAR_MAX = 100); saved/loaded as a flat array
+# (OnSever.cpp:6443 LoadCharInfoFixed). Nonzero code = NPC in use; shipped
+# files use smTRANSCODE_ADD_NPC = 0x48470070 (smPacket.h:117).
 class smTRNAS_PLAYERINFO(LittleEndianStructure): # [sic]
 	# 504 bytes
 	_fields_ = [

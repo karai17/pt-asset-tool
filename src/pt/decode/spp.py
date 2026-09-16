@@ -29,6 +29,9 @@ def decode(path: str) -> list[PTServerSpawnPoint]:
 	for _ in range(num_points):
 		sm_point = sm_buffer.read(STG_START_POINT)
 
+		# state is the slot-used flag (STG_AREA::AddStartPoint sets it for a new
+		# point, OnSever.cpp:7812; spawning picks slots with state != 0,
+		# OnSever.cpp:7880 SetStartPosChar); zero-filled tail entries are skipped.
 		if sm_point.state + sm_point.x + sm_point.z != 0:
 			points.append(PTServerSpawnPoint(
 				active = True if sm_point.state == 1 else False,

@@ -13,7 +13,21 @@ from pt.const import (
 )
 
 
-# Reference: fileread.cpp::MotionKeyWordDecode
+# INX files are raw smMODELINFO structs obfuscated in two layers by the ini
+# compiler (fileread.cpp::AddModelDecode -> smModelDecode saves the struct):
+#
+# 1. fileread.cpp::ModelKeyWordEncode xors a checksum of the file path into
+#    FileTypeKeyWord / LinkFileKeyWord. The loader verifies it
+#    (fileread.cpp::ModelKeyWordDecode) but nothing in the struct payload is
+#    actually encrypted by it, so a decoder may ignore these fields.
+# 2. fileread.cpp::MotionKeyWordEncode folds the same checksum into
+#    StartFrame / MotionKeyWord_1 / EndFrame / MotionKeyWord_2 of every motion
+#    entry from index CHRMOTION_EXT (10) up. This one must be reversed before
+#    frames are readable.
+#
+# Reference: fileread.cpp:6474 MotionKeyWordDecode. The byte shuffles below
+# are the exact inverses of the encoder's shifts/masks (dwCode is dropped
+# because both encoder and decoder zero the keyword fields they touch).
 def decode_motion(sm_motioninfo):
 	sm_motioninfo.StartFrame = ((sm_motioninfo.StartFrame & int.from_bytes(b"\x00\x00\x00\xff")) << 24) | (sm_motioninfo.StartFrame & int.from_bytes(b"\x00\xff\x00\x00")) | ((sm_motioninfo.MotionKeyWord_1 & int.from_bytes(b"\x00\xff\x00\x00")) >> 8) | (sm_motioninfo.MotionKeyWord_1 & int.from_bytes(b"\x00\x00\x00\xff"))
 	sm_motioninfo.MotionKeyWord_1 = 0
@@ -22,7 +36,16 @@ def decode_motion(sm_motioninfo):
 
 
 def decode(path: str) -> PTActorModel | PTStageModel | None:
-	"""Import an INX file as the entry point of loading a 3D model."""
+	"""
+	Import an INX file as the entry point of loading a 3D model.
+
+	The engine's counterpart is fileread.cpp:967 smModelDecode, which reads
+	the ini/inx into an smMODELINFO and then loads the referenced smd/smb
+	files via smPAT3D::LoadFile. Shipped INX files are raw sizeof(smMODELINFO)
+	(67084) or sizeof(smMODELINFO_EX) (95268) byte structs; the size check
+	stands in for the engine's smModelDecode dwFileLen == sizeof check
+	(fileread.cpp:1019).
+	"""
 	sm_buffer = BufferReader(path)
 	size = len(sm_buffer.data)
 
@@ -57,17 +80,29 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 
 	metadata = PTModelMetadata()
 
-	# collect only high quality model names, cull the rest in the smd importer
+	# collect only high quality model names, cull the rest in the smd importer.
+	# smMODELINFO.HighModel / DefaultModel / LowModel are _MODELGROUPs filled
+	# from the *정밀모양 (high) / *보통모양 (default) / *저질모양 (low) ini keys
+	# (fileread.cpp:624-634, AddModelDecode case 6/7/8).
 	for i in range(sm_modelinfo.HighModel.ModelNameCnt):
 		metadata.model_names.append(decode_string(sm_modelinfo.HighModel.szModelName[i]))
 
-	# loop through and decode motion info to build metadata
+	# loop through and decode motion info to build metadata. The engine walks
+	# the same range: for(i = CHRMOTION_EXT; i < MotionCount; i++)
+	# (fileread.cpp:6482 MotionKeyWordDecode). Slots 0-9 stay zero: the ini
+	# parser only writes MotionInfo[10+] because the old fixed-slot commands
+	# (*걷는동작 / *서있기동작) are commented out in AddModelDecode
+	# (fileread.cpp:601-610).
 	for i in range(10, sm_modelinfo.MotionCount + 10):
 		sm_motioninfo = sm_modelinfo.MotionInfo[i]
 		if sm_motioninfo.State > 0:
 			decode_motion(sm_motioninfo)
 
 			animation = PTMotionMetadata()
+			# State is set by the ini parser's keyword match on the motion line:
+			# State 1 (TRUE) when no keyword matched (fileread.cpp:337), otherwise
+			# CHRMOTION_STATE_* (character.h:893-931) such as CHRMOTION_STATE_STAND
+			# = 0x40 or CHRMOTION_STATE_RUN = 0x60.
 			animation.name = CHRMOTION_STATE.get(sm_motioninfo.State, "unknown")
 			animation.start_frame = sm_motioninfo.StartFrame
 			animation.end_frame = sm_motioninfo.EndFrame
@@ -75,14 +110,18 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 
 			# event frames denote which frame relative to the beginning of the
 			# animation some event occurs, such as playing a sound, displaying a
-			# decal, or whatever else!
+			# decal, or whatever else! The ini parser stores them scaled by 160
+			# ticks (fileread.cpp:236 SetIniMotionInfo: (atoi - StartFrame) * 160);
+			# divide by 160 to recover the frame number.
 			for k in range(3):
 				event_frame = sm_motioninfo.EventFrame[k]
 				if event_frame > 0:
 					animation.event_frames.append(event_frame / 160)
 
-			# TODO: MotionFrame
-			# TODO: talk info (see debug prints)
+			# TODO: MotionFrame indexes the *동작모음 motion file list (set at
+			# fileread.cpp:336); TODO: talk info (see debug prints), stored in
+			# TalkMotionInfo via SetIniMotionInfo (fileread.cpp:446) from the
+			# *표정 ini keywords (fileread.cpp:449-492).
 
 			metadata.animations.append(animation)
 

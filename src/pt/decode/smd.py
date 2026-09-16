@@ -21,6 +21,13 @@ from pt.const import (
 decoded_objects = [] # list of all objects (iterative)
 
 
+# Actor files are smPAT3D files: smDFILE_HEADER, smDFILE_OBJINFO[ObjCounter],
+# materials, then ObjCounter object blocks written by smOBJ3D::SaveFile
+# (smObj3d.cpp:2856 SaveFile, :2937 LoadFile, :2110 smOBJ3D::SaveFile,
+# :2146 smOBJ3D::LoadFile). Stage files are smSTAGE3D files written by
+# smSTAGE3D::SaveFile (smStage3d.cpp:2291) / LoadFile (smStage3d.cpp:2362).
+
+
 def decode_material_name(script_flags, blend_flag):
 	name = ""
 
@@ -36,6 +43,9 @@ def decode_material_name(script_flags, blend_flag):
 	return name
 
 
+# Rebuild ASE texture map names from the flag bits parsed out of *MAP_NAME
+# strings at import (smRead3d.cpp:367-384: BsStageScript values are D3DTOP_
+# enums, BitmapFormState is the szMapFormScript table index).
 def decode_texture_map_name(stage_flag, form_flag):
 	name = ""
 
@@ -55,6 +65,8 @@ def decode_texture_map_name(stage_flag, form_flag):
 # The vertex color data is unrecoverable due to how PT tangles the data and
 # averages it out. The best we can do is to pull the information out and leave
 # it to the user to determine the value of this data.
+# Reference: smStage3d.cpp:1055-1058 AddVertex initializes 255,255,255,255 via
+# the SMC_ macros; smStage3d.cpp:1266-1277 averages neighbor colors at load.
 def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> tuple[list[PTVector3], list[PTColorVertex]]:
 	vertices = []
 	colors = []
@@ -66,7 +78,8 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 	for _ in range(sm_stage.nVertex):
 		sm_vertex = sm_modelbuffer.read(smSTAGE_VERTEX)
 
-		# swap Y and Z
+		# swap Y and Z: the stage ASE importer maps *MESH_VERTEX (x,y,z) to
+		# AddVertex(x,z,y) (smRead3d.cpp:2448-2460 smSTAGE3D_ReadASE_GEOMOBJECT).
 		# Reference: smRead3d.cpp::smSTAGE3D_ReadASE_GEOMOBJECT
 		vertices.append(PTVector3(
 			x = sm_vertex.x / 256,
@@ -74,7 +87,8 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 			z = sm_vertex.y / 256
 		))
 
-		# BGRA
+		# BGRA: sDef_Color is indexed with SMC_B=0, SMC_G=1, SMC_R=2, SMC_A=3
+		# (smType.h:59-62), not the struct comment's "RGBA".
 		# Reference: smType.h::SMC_A, SMC_R, SMC_G, SMC_B
 		colors.append(PTColorVertex(
 			r = sm_vertex.sDef_Color[2] / 255,
@@ -107,6 +121,10 @@ def decode_stage_faces(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> lis
 	return faces
 
 
+# Multi-texture faces chain extra smTEXLINKs via NextTex. The loaders rebase
+# the stale pointers by element difference (smObj3d.cpp:2200-2221,
+# smStage3d.cpp:2436-2453). This decoder only resolves the primary link per
+# face; the chain walk is TODO.
 def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list[PTObjectTexture_Coord]:#, materials):
 	texture_coords = []
 
@@ -140,6 +158,11 @@ def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3
 	# ptr = None
 
 	face_offset = texlink_offset - (sm_stage.nFace * sizeof(smSTAGE_FACE))
+	# Faces store stale addresses; the array index is recovered by differencing
+	# against the first non-null address, mirroring the C pointer rebasing
+	# (smStage3d.cpp:2444-2452: Face[cnt].lpTexLink = TexLink + (ptr - old)).
+	# Shipped files point face i at &TexLink[base + i], so the difference is
+	# a stable linear index.
 	for i in range(sm_stage.nFace):
 		sm_modelbuffer.seek(face_offset + (i * sizeof(smSTAGE_FACE)))
 		sm_face = sm_modelbuffer.read(smSTAGE_FACE)
@@ -196,6 +219,9 @@ def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3
 
 # only dungeons 1-5 (dun 1-3 sanc 1-2) have lightmaps (*LM_). no other
 # stages seem to be light mapped!
+# Light records are read by smSTAGE3D::LoadFile (smStage3d.cpp:2430-2433) as
+# sizeof(smLIGHT3D) = 28-byte records; type flags are smLIGHT_TYPE_NIGHT =
+# 0x1, LENS = 0x2, PULSE2 = 0x4, OBJ = 0x8, DYNAMIC = 0x80000 (smType.h:132-138).
 # TODO: lights need to actually do something
 def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list:
 	lights = []
@@ -212,6 +238,9 @@ def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> li
 	return lights
 
 
+# Resolve the parent by NodeParent name. The engine matches parents with
+# _stricmp (smPAT3D::LinkObject, smObj3d.cpp:2340-2355; bones also match by
+# _stricmp in smPAT3D::GetObjectFromName, smObj3d.cpp:2383).
 def decode_actor_parent(parent_name: str | None) -> smOBJ3D | None:
 	if parent_name:
 		for sm_object in decoded_objects:
@@ -219,6 +248,35 @@ def decode_actor_parent(parent_name: str | None) -> smOBJ3D | None:
 				return sm_object
 
 
+# Mirror of the engine's runtime TM handling. The authoritative static
+# transform of a bone is its Tm matrix, which the engine treats as the bone's
+# accumulated WORLD transform: smOBJ3D::TmAnimation composes the render
+# matrix as qmat = Tm * pParent->TmInvert (static branch, smObj3d.cpp), then
+# TmResult = qmat * pParent->TmResult; the product telescopes so the bone's
+# world transform equals Tm exactly. The engine converts Tm to parent-local
+# at runtime with a general matrix inverse (smMatrixInvert, smmatrix.cpp).
+#
+# The px/py/pz and qx..qw static fields are NOT trusted for the bind pose. A
+# runtime audit of smObj3d.cpp finds exactly two uses, both animation-key
+# fallbacks inside TmAnimation, and both covered by our animation decode:
+#   px/py/pz -> animation position when the bone has NO position keys
+#               (qmat._41 = float(px) / fONE)
+#   qx..qw   -> baked into TmRotate at import (smRead3d.cpp:1268), used as
+#               the animation rotation when the bone has NO rotation keys
+#               (smFMatrixFromMatrix(qmat, TmRotate))
+# sx/sy/sz feed only the ReformTM scale normalization (smObj3d.cpp:920-985).
+# None of them participate in the static hierarchy.
+#
+# This matters because the static fields are not even self-consistent across
+# files: the ASE exporters wrote either parent-relative data (Buma) or
+# world-space NODE_TM data (Aragonian) into *TM_POS / *TM_ROTAXIS, and the
+# converter copies them verbatim (smRead3d.cpp:1237-1268). Tm is the only
+# consistent truth, so position/rotation below ALWAYS derive from
+# qmat = Tm * inv(parentTm) - the engine's own math - never from px..qw.
+#
+# The PTObjectTransform matrix fields (_ij) keep the world Tm (with the
+# ReformTM scale fixup mirrored): the glTF exporter's vertex bake and
+# inverse-bind matrices pair against it.
 def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None, has_bones: bool = False):
 	if sm_object_parent:
 		scalei = PTVector3Int(
@@ -233,12 +291,22 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 			z = sm_object.sz
 		)
 
-	# rotation matrix needs some scale manipulation
+	# rotation matrix needs some scale manipulation (ReformTM does
+	# Tm._ij = (Tm._ij << FLOATNS) / scale, smObj3d.cpp:933-961; dividing by
+	# scale/256 as float is algebraically equivalent for the /256 fixed point
+	# used here)
 	manipulated = int((scalei.x + scalei.y + scalei.z) / 3)
 
 	if has_bones or manipulated == 0:
 		manipulated = 256
 
+	# TRS decomposition from Tm, the engine's authoritative matrix. qmat is the
+	# engine's own static-branch math: local = Tm * inv(parentTm); for a root
+	# bone the engine uses Tm directly (smOBJ3D::TmAnimation:
+	# smFMatrixFromMatrix(qmat, Tm)). The ReformTM scale fixup is applied first
+	# to mirror the order the engine runs in (ReformTM mutates Tm before any
+	# animation matrix is built); for the unit-scale bipeds of every shipped
+	# model it is the identity.
 	cm = sm_tm_to_np(sm_object.Tm, manipulated)
 	local = cm
 	if sm_object_parent:
@@ -246,12 +314,22 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 		if local is None:
 			local = cm
 
+	# qmat's translation row is the parent-space offset already in inches
+	# (fONE was divided out by sm_tm_to_np; the engine's 8.8 shift does not
+	# apply twice), and its rotation matches the animation keys - verified
+	# key0 == quat(qmat) on world-convention files such as Aragonian.
 	position = PTVector3(
 		x = local[3][0],
 		y = local[3][1],
 		z = local[3][2]
 	)
 
+	# The engine applies no TRS decomposition - it uses matrices directly - so
+	# authored Tm matrices may carry baked uniform scale (Raeda clavicles,
+	# det = 0.9925, i.e. 0.4% shorter bones) or a mirror (negative det).
+	# Decompose the rotation block properly: normalize away the scale, flip a
+	# column when det < 0 (recorded as negative node scale, the glTF
+	# convention for mirrored chains), then extract the quaternion.
 	rotation, fix_scale, flipped = decompose_rotation(local)
 
 	scale = PTVector3(
@@ -279,11 +357,16 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 		_44 = 1,
 
 		rotation = rotation,
+
 		position = position,
+
 		scale = scale
 	)
 
 
+# Actor vertices come from the actor ASE importer which keeps *MESH_VERTEX
+# (x,y,z) order unchanged, unlike the stage importer's x,z,y swap.
+# Reference: smRead3d.cpp:1346-1361 ReadASE_GEOMOBJECT
 def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTVector3]:
 	vertices = []
 
@@ -302,6 +385,9 @@ def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> l
 	return vertices
 
 
+# Faces are consumed in file order; v[3] holds the per-face material id that
+# ReadASE_GEOMOBJECT captured from *MESH_MTLID (smRead3d.cpp:1379-1394
+# SetFaceMaterial).
 def decode_actor_faces(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTObjectFace]:
 	faces = []
 
@@ -323,6 +409,10 @@ def decode_actor_faces(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list
 	return faces
 
 
+# smTEXLINK i holds the UVs of face i: ReadASE_GEOMOBJECT calls AddTexLink
+# once per face in order (smRead3d.cpp:1543-1551) and AddTexLink appends and
+# links Face[n].lpTexLink = &TexLink[nTexLink] (smObj3d.cpp:590-618).
+# UV v was stored as 1-fv at import (smRead3d.cpp:1548), so 1-v undoes it.
 def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTObjectTexture_Coord]:
 	texture_coords = []
 
@@ -374,6 +464,12 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 	pos_window = key_frame_window(sm_object, sm_object.TmPosCnt, sm_object.TmPosFrame)
 	scl_window = key_frame_window(sm_object, sm_object.TmScaleCnt, sm_object.TmScaleFrame)
 
+	# For each key group, keep only the keys inside the valid window and take
+	# the last kept key's frame as the object's last frame. The engine samples
+	# keys with the same window lookup (smObj3d.cpp:1252 GetTmFramePos,
+	# :1272 GetTmFrameScale, :1292 GetTmFrameRot, called from TmAnimation at
+	# smObj3d.cpp:1424-1426); the last position key also feeds MaxFrame in
+	# smPAT3D::AddObject (smObj3d.cpp:2290-2293).
 	rot_start, rot_end = rot_window
 	pos_start, pos_end = pos_window
 	scl_start, scl_end = scl_window
@@ -419,11 +515,17 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 			last_frame = sm_scale.frame
 
 	for _ in range(sm_object.TmRotCnt):
+		# jump pointer ahead over the TmPrevRot matrix block written after the
+		# keys (smObj3d.cpp:2127 SaveFile: sizeof(smMATRIX) * TmRotCnt)
 		sm_modelbuffer.read(smFMATRIX)
 
 	return animation, last_frame
 
 
+# Physique name table: written when the runtime Physique pointer is non-null
+# (smObj3d.cpp:2129-2137 SaveFile), 32-byte NodeName of the bound bone per
+# vertex. LoadFile gates on the same pointer read back from disk
+# (smObj3d.cpp:2223-2236).
 def decode_actor_physique(sm_modelbuffer: BufferReader, sm_object: smOBJ3D, has_bones: bool) -> list[str]:
 	physique = []
 
@@ -436,6 +538,12 @@ def decode_actor_physique(sm_modelbuffer: BufferReader, sm_object: smOBJ3D, has_
 	return physique
 
 
+# Reference: smTexture.cpp:713 smMATERIAL_GROUP::LoadFile. Each material is a
+# 320-byte smMATERIAL followed by the texture path blob only when InUse != 0
+# (smTexture.cpp:731). The blob holds (Name, NameA) NUL-string pairs for
+# TextureCounter textures then again for AnimTexCounter animation textures
+# (smTexture.cpp:738-764); NameA non-empty selects an alternate pixel format
+# and is usually a duplicate or empty in shipped data.
 def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	sm_material = sm_modelbuffer.read(smMATERIAL)
 
@@ -450,6 +558,10 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 		material.transparent = True if sm_material.Transparency > 0 else False
 		material.selfillum = True if sm_material.SelfIllum > 0 else False
 		material.two_sided = True if sm_material.TwoSide > 0 else False
+		# MeshState / UseState are built from the material script flags at
+		# import (smTexture.cpp:941-1013 AddMaterial) using sMATS_SCRIPT_*
+		# (smRead3d.h:44-77) and SMMAT_STAT_CHECK_FACE = 0x1
+		# (smType.h:649).
 		material.mesh_flags = sm_material.MeshState # Reference: smTexture.cpp::smMATERIAL_GROUP::AddMaterial (line ~944)
 		material.collide = True if (sm_material.MeshState % 2) == 1 else False
 
@@ -540,6 +652,8 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 				)
 				material.texture_map.selfillum_path = texpaths[1] # self illumination texture is the second texture
 
+			# MapOpacity != 0 means *MAP_OPACITY in the ASE; the engine loads the
+			# diffuse bitmap with the opacity map as its NameA (smTexture.cpp:874-912)
 			if len(texpaths) > 0 and sm_material.MapOpacity == 1:
 				material.texture_map.opacity_name = ""
 				material.texture_map.opacity_path = texpaths[0] # opacity uses the diffuse texture
@@ -547,6 +661,13 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 
 
 def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]:
+	""""Decode an SMB bone file.
+
+	SMB files are actor-layout SMDs written by smPAT3D::SaveFile: the ASE
+	biped pass keeps only Bip* objects (smRead3d.cpp:1966-1975
+	smASE_ReadBone) and saves them under the smb extension via
+	ChangeFileExt + SaveFile (smRead3d.cpp:1983-1985).
+	"""
 	bones = []
 	sm_fileheader = sm_motionbuffer.read(smDFILE_HEADER)
 
@@ -564,6 +685,8 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 		sm_object = sm_motionbuffer.read(smOBJ3D)
 
 		# Verify that the object is valid.
+		# Head = 0x41424344 | OBJ_HEAD_TYPE_NEW_NORMAL = 0x80000000
+		# (smObj3d.cpp:2115-2119, smObj3d.h:10).
 		# Reference: smObj3d.cpp::smOBJ3D::SaveFile (lines ~2117 -> 2121)
 		if sm_object.Head != OBJECT_HEAD and sm_object.Head != OBJECT_HEAD_OLD:
 			print(f"Bone object #{i} has an invalid header: {sm_object.Head}")
@@ -598,6 +721,13 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 
 
 def decode_stage(sm_modelbuffer: BufferReader) -> PTStageModel:
+	"""Decode a stage SMD.
+
+	Reference: smSTAGE3D::LoadFile (smStage3d.cpp:2362). Layout: header,
+	smSTAGE3D, materials (if MatCounter), then vertex/face/texlink/light
+	arrays. The loader never seeks with MatFilePoint (which the writer
+	hardcodes to 556, smStage3d.cpp:2310) - it reads sequentially.
+	"""
 	model = PTStageModel()
 
 	sm_modelbuffer.seek(0)
@@ -605,7 +735,8 @@ def decode_stage(sm_modelbuffer: BufferReader) -> PTStageModel:
 	sm_stage = sm_modelbuffer.read(smSTAGE3D)
 
 	if sm_fileheader.MatCounter > 0:
-		# jump pointer ahead
+		# jump pointer ahead over smMATERIAL_GROUP (written by
+		# smMATERIAL_GROUP::SaveFile, smTexture.cpp:663)
 		sm_modelbuffer.read(smMATERIAL_GROUP)
 
 		for _ in range(sm_fileheader.MatCounter):
@@ -617,8 +748,11 @@ def decode_stage(sm_modelbuffer: BufferReader) -> PTStageModel:
 	object.num_vertices = sm_stage.nVertex
 	object.num_faces = sm_stage.nFace
 	object.num_texture_links = sm_stage.nTexLink
-	# sm_stage.nLight
+	# sm_stage.nLight (decoded by decode_stage_lights, discarded)
 	# sm_stage.nVertColor
+	# after the lights the file carries the 256x256 StageArea draw-partition
+	# records (smStage3d.cpp:2340-2349 SaveFile, :2476-2491 LoadFile); engine
+	# batching data, not needed to reconstruct the mesh
 
 	object.vertices, object.vertex_colors = decode_stage_vertices(sm_modelbuffer, sm_stage)
 	object.faces = decode_stage_faces(sm_modelbuffer, sm_stage)
@@ -652,7 +786,9 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			sm_object = sm_modelbuffer.read(smOBJ3D)
 			frame = 0
 
-			# jump pointer ahead
+			# Reference: smObj3d.cpp::smPAT3D::AddObject computes MaxFrame as the
+			# maximum over objects of the last position key frame, which overwrites
+			# the last rotation key frame when present; scale keys are ignored.
 			for _ in range(sm_object.nVertex): sm_modelbuffer.read(smVERTEX)
 			for _ in range(sm_object.nFace): sm_modelbuffer.read(smFACE)
 			for _ in range(sm_object.nTexLink): sm_modelbuffer.read(smTEXLINK)
@@ -667,7 +803,7 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 
 			max_frame = max(max_frame, frame)
 
-			# jump pointer ahead
+			# jump pointer ahead over the rest of this object's payload
 			for _ in range(sm_object.TmScaleCnt): sm_modelbuffer.read(smTM_SCALE)
 			for _ in range(sm_object.TmRotCnt): sm_modelbuffer.read(smFMATRIX)
 
@@ -697,6 +833,8 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			sm_object = sm_modelbuffer.read(smOBJ3D)
 
 			# Verify that the object is valid.
+			# Head = 0x41424344 | OBJ_HEAD_TYPE_NEW_NORMAL = 0x80000000
+			# (smObj3d.cpp:2115-2119, smObj3d.h:10).
 			# Reference: smObj3d.cpp::smOBJ3D::SaveFile (lines ~2117 -> 2121)
 			if sm_object.Head != OBJECT_HEAD and sm_object.Head != OBJECT_HEAD_OLD:
 				print(f"Mesh object #{i} has an invalid header: {sm_object.Head}")
@@ -705,6 +843,11 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			object = PTActorObject()
 			object.name = decode_string(sm_object.NodeName)
 
+			# filter out objects we don't want such as low quality meshes.
+			# The engine resolves one model per name from the inx model groups;
+			# name matching is case-insensitive (_stricmp in
+			# smPAT3D::LinkObject / GetObjectFromName, smObj3d.cpp:2346 / 2389).
+			# Reference: smObj3d.cpp uses lstrcmpi / _stricmp: case-insensitive
 			found = False
 			if metadata:
 				for model_name in metadata.model_names:
@@ -714,6 +857,9 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			else:
 				found = True
 
+			# the object payload must always be consumed to keep the cursor in sync
+			# Reference: smObj3d.cpp::smOBJ3D::LoadFile reads the payload of every
+			# object regardless of which objects the caller keeps
 			has_bones = True if sm_object.Physique_ptr > 0 else False
 
 			parent = decode_string(sm_object.NodeParent)
@@ -735,6 +881,9 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			object.transform = decode_actor_transform(sm_object, sm_object_parent, has_bones)
 
 			if found:
+				# static rotation fallback for objects without rotation keys,
+				# matching TmAnimation's else branch
+				# (smFMatrixFromMatrix(qmat, TmRotate), smObj3d.cpp:1345).
 				# NOTE: this is used on objects without rotation frames
 				# Reference: @Rovug from RageZone Priston Tale Discord
 				object.transform_rotate._11 = sm_object.TmRotate._11 / 256
@@ -755,8 +904,10 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 
 
 def decode(modelpath: str, motionpath: str | None = None, metadata: PTModelMetadata | None = None) -> PTActorModel | PTStageModel | None:
-	""" Decodes an SMD file into the internal model structure. """
+	"""Decode an actor SMD (and its optional SMB bones) into the internal model structure."""
 
+	# Reference: smPAT3D::LoadFile (smObj3d.cpp:2937): validate szHeader with
+	# lstrcmp, read the header, materials, then every object block.
 	if not os.path.exists(modelpath):
 		print(f"Model file not found: {modelpath}")
 		return
@@ -772,6 +923,7 @@ def decode(modelpath: str, motionpath: str | None = None, metadata: PTModelMetad
 	if signature == STAGE_SIGNATURE:
 		model = decode_stage(sm_modelbuffer)
 		model.filename = modelroot + modelext
+		# single stage pseudo-object; the engine keeps smSTAGE3D whole
 		model.objects[0].name = modelroot
 		return model
 

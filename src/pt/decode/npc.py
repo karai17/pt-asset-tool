@@ -7,7 +7,15 @@ from pt.const import (
 
 
 def decode(path: str) -> PTServerCharacter:
-	"""Decode an NPC file which consists of NPC definition data."""
+	"""
+	Decode an NPC file which consists of NPC definition data.
+
+	NPC files are parsed by the same engine line parser used for INF files:
+	fileread.cpp:4279 smCharDecode (the client's .npc loader is
+	playmain.cpp:1452; GetWord/GetString at fileread.cpp:81/:46 do the
+	tokenizing that CONFIG_PATTERN approximates). Only *-prefixed lines are
+	commands; // lines are comments.
+	"""
 	character = PTServerCharacter()
 
 	with open(path, "rb") as f:
@@ -21,6 +29,8 @@ def decode(path: str) -> PTServerCharacter:
 			key = segments.pop(0)
 
 			match key:
+				# *속성: NPC marks an NPC record (smCharDecode also accepts 적,
+				# the monster value; fileread.cpp:4338)
 				case NPC.State:
 					character.active = True if segments[0] == NPC._ACTIVE else False
 				case NPC.szModelName:
@@ -34,14 +44,22 @@ def decode(path: str) -> PTServerCharacter:
 				case NPC.lpDialogMessage:
 					character.dialogue.append(decode_string(segments[0]))
 				case NPC.SellAttackItem:
+					# *무기판매: item names resolved against the item table
+					# (smCharDecode case at fileread.cpp:5162-5177)
 					character.sell_weapons = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
 				case NPC.SellDefenceItem:
+					# *방어구판매 (fileread.cpp:5178-5193)
 					character.sell_defences = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
 				case NPC.SellEtcItemCount:
+					# *잡화판매 (fileread.cpp:5194-5209); key fixed: was an
+					# AttributeError before (const only defines SellEtcItemCount)
 					character.sell_misc = [decode_string(s) for s in segments if segments[0] != NPC._EMPTY]
 				case NPC.SkillMaster:
 					character.skill_master = True
 				case NPC.SkillChangeJob:
+					# *직업전환; no argument = rank 0 (smCharDecode also maps the
+					# rank keywords *두목 / *계급 to wPlayClass[0],
+					# fileread.cpp:126278-126300)
 					character.job_master = 0 if len(segments) == 0 else segments[0]
 				case NPC.EventNPC:
 					character.event = int(segments[0])

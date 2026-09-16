@@ -391,6 +391,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 				prim["normalbuffer"].write((c_float*3)(normal.x, normal.y, normal.z))
 
 			# TEXCOORD_0
+			# faces with a null lpTexLink_ptr have no texture link (nTexLink < nFace)
 			if hasattr(object, "texture_coords") and object.texture_coords and iface[0] < len(object.texture_coords):
 				tc = object.texture_coords[iface[0]]
 
@@ -517,6 +518,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			try:
 				np_w = np.linalg.inv(np_m) # lol it's an inverted m ;D
 			except np.linalg.LinAlgError:
+				# degenerate helper bones (zero Tm/scale) that no physique references;
+				# the engine inverts them into garbage that is never sampled
 				np_w = np.identity(4)
 
 			if bone._parent:

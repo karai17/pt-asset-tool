@@ -30,6 +30,9 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 	for _ in range(num_points):
 		sm_npc = sm_buffer.read(smTRNAS_PLAYERINFO)
 
+		# code is checked against smTRANSCODE_ADD_NPC (0x48470070,
+		# smPacket.h:117) by the server's NPC iteration (OnSever.cpp:7699:
+		# "if ( TransCharFixed[cnt].code ) OpenNpc(...)").
 		if sm_npc.size == 504:
 			char, ext = get_filename(decode_string(sm_npc.smCharInfo.szModelName))
 			npc, ext = get_filename(decode_string(sm_npc.smCharInfo.szModelName2))
@@ -44,6 +47,9 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 					y = sm_npc.y * SCALE_INCH_TO_METER,
 					z = sm_npc.z * SCALE_INCH_TO_METER
 				),
+				# angle triple is applied verbatim to smCHAR::Angle by OpenNpc
+				# (OnSever.cpp:6504-6506); the 4096-unit circle is defined in
+				# smSin.h:25 (ANGLE_360).
 				rotation = angles_to_quaternion(sm_npc.ax, sm_npc.ay, sm_npc.az),
 				scale = PTVector3()
 			))

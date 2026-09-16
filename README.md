@@ -163,3 +163,6 @@ Here is how I compiled a list of monster names so that I could convert their dat
 
 * `fileread.h::rsSTG_MONSTER`
 * `smPacket.h::smCHAR_MONSTER_INFO`
+* `fileread.cpp::DecodeOpenMonster` (SPM parser, line 5382)
+* `Server/OnSever.cpp::LoadStartPoint` (SPP loader, line 7052)
+* `Server/OnSever.cpp::LoadCharInfoFixed` (SPC loader, line 6443)
