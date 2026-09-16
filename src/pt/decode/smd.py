@@ -222,19 +222,41 @@ def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3
 # Light records are read by smSTAGE3D::LoadFile (smStage3d.cpp:2430-2433) as
 # sizeof(smLIGHT3D) = 28-byte records; type flags are smLIGHT_TYPE_NIGHT =
 # 0x1, LENS = 0x2, PULSE2 = 0x4, OBJ = 0x8, DYNAMIC = 0x80000 (smType.h:132-138).
-# TODO: lights need to actually do something
-def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list:
+# Only DYNAMIC lights reach the smLight array: the ASE importer bakes
+# non-dynamic ones into vertex colors via AddVertexLightRound
+# (smRead3d.cpp:3277-3310). type names come from the *NODE_NAME prefixes
+# "night:"/"lens:"/"obj:" (smRead3d.cpp:2818-2840). Positions are inches
+# (x,z,y at *TM_POS, smRead3d.cpp:2865-2871); Range is authored as v*16384
+# for *LIGHT_MAPRANGE value v (smRead3d.cpp:2875-2877) and the engine falloff
+# reaches zero at radius Range>>8 = v*64 engine units (AddVertexLightRound
+# eLight, smStage3d.cpp:1303-1345), so range is stored here as that radius
+# in inches.
+def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list[PTStageLight]:
 	lights = []
-	print(f"Contrast: {sm_stage.Contrast}")
-	print(f"Bright: {sm_stage.Bright}")
-	print(f"VectLight: [{sm_stage.VectLight.x},{sm_stage.VectLight.y},{sm_stage.VectLight.z}]")
-	print(f"nLight: {sm_stage.nLight}")
+
 	for _ in range(sm_stage.nLight):
 		sm_light = sm_modelbuffer.read(smLIGHT3D)
-		print(f"type: 0x{sm_light.type.to_bytes()}")
-		print(f"xyz: [{sm_light.x},{sm_light.y},{sm_light.z}]")
-		print(f"Range: {sm_light.Range}")
-		print(f"rgb: [{sm_light.r},{sm_light.g},{sm_light.b}]")
+		type_flags = sm_light.type & 0xFFFFFFFF
+		lights.append(PTStageLight(
+			type_flags = type_flags,
+			dynamic = bool(type_flags & 0x80000),
+			night = bool(type_flags & 0x1),
+			lens = bool(type_flags & 0x2),
+			obj = bool(type_flags & 0x8),
+			position = PTVector3(
+				x = sm_light.x / 256,
+				y = sm_light.z / 256,
+				z = sm_light.y / 256
+			),
+			range = sm_light.Range / 256,
+			color = PTColorVertex(
+				r = sm_light.r / 255,
+				g = sm_light.g / 255,
+				b = sm_light.b / 255,
+				a = 1
+			)
+		))
+
 	return lights
 
 
@@ -748,7 +770,6 @@ def decode_stage(sm_modelbuffer: BufferReader) -> PTStageModel:
 	object.num_vertices = sm_stage.nVertex
 	object.num_faces = sm_stage.nFace
 	object.num_texture_links = sm_stage.nTexLink
-	# sm_stage.nLight (decoded by decode_stage_lights, discarded)
 	# sm_stage.nVertColor
 	# after the lights the file carries the 256x256 StageArea draw-partition
 	# records (smStage3d.cpp:2340-2349 SaveFile, :2476-2491 LoadFile); engine
@@ -757,7 +778,19 @@ def decode_stage(sm_modelbuffer: BufferReader) -> PTStageModel:
 	object.vertices, object.vertex_colors = decode_stage_vertices(sm_modelbuffer, sm_stage)
 	object.faces = decode_stage_faces(sm_modelbuffer, sm_stage)
 	object.texture_coords = decode_stage_texture_coords(sm_modelbuffer, sm_stage) #, model.materials)
-	# object.lights = decode_stage_lights(sm_modelbuffer, sm_stage)
+	object.lights = decode_stage_lights(sm_modelbuffer, sm_stage)
+
+	# global vertex-shade sun parameters; the engine folds these into vertex
+	# colors at import (SetVertexShade, smStage3d.cpp:1183-1290) and only
+	# dynamic lights are serialized to the SMD
+	model.lights = object.lights
+	model.contrast = sm_stage.Contrast
+	model.bright = sm_stage.Bright
+	model.vect_light = PTVector3(
+		x = sm_stage.VectLight.x / 256,
+		y = sm_stage.VectLight.y / 256,
+		z = sm_stage.VectLight.z / 256
+	)
 
 	model.objects.append(object)
 	return model

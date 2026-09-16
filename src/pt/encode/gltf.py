@@ -963,6 +963,57 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				process_animation(gltf, bone.animation, name, bone._id, track, animation)
 
+	""" LIGHTS """
+
+	# Stage dynamic lights (smLIGHT3D) as KHR_lights_punctual point lights.
+	if hasattr(model, "lights") and model.lights:
+		gltf.extensionsUsed.append("KHR_lights_punctual")
+
+		punctual_lights = []
+
+		for i, light in enumerate(model.lights):
+			suffix = "".join(
+				[ s for flag, s in (
+					(light.dynamic, "-dynamic"),
+					(light.night, "-night"),
+					(light.lens, "-lens"),
+					(light.obj, "-obj")
+				) if flag ]
+			)
+
+			name = f"light_{i}{suffix}"
+			punctual = {
+				"name": name,
+				"type": "point",
+				"color": [ light.color.r, light.color.g, light.color.b ],
+				"intensity": 1.0
+			}
+
+			if light.range > 0:
+				punctual["range"] = light.range * SCALE_INCH_TO_METER
+
+			punctual_lights.append(punctual)
+
+			gltf.nodes.append(Node(
+				name = name,
+				translation = [
+					-light.position.x * SCALE_INCH_TO_METER,
+					 light.position.z * SCALE_INCH_TO_METER,
+					 light.position.y * SCALE_INCH_TO_METER
+				],
+				extensions = {
+					"KHR_lights_punctual": {
+						"light": i
+					}
+				}
+			))
+
+		gltf.extensions = {
+			"KHR_lights_punctual": {
+				"lights": punctual_lights
+			}
+		}
+
 	""" SCENE """
 
 	scene = Scene()

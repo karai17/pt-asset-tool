@@ -165,6 +165,19 @@ class PTAnimationTrack:
 
 
 @dataclass
+class PTStageLight:
+	name: str | None = None
+	type_flags: int = 0
+	dynamic: bool = False
+	night: bool = False
+	lens: bool = False
+	obj: bool = False
+	position: PTVector3 = field(default_factory=PTVector3)
+	range: float = 0
+	color: PTColorVertex = field(default_factory=PTColorVertex)
+
+
+@dataclass
 class PTStageObject:
 	name: str | None = None
 	num_vertices: int = 0
@@ -187,6 +200,10 @@ class PTStageModel:
 	scene: PTModelScene = field(default_factory=PTModelScene)
 	materials: list[PTModelMaterial] = field(default_factory=list)
 	objects: list[PTStageObject] = field(default_factory=list)
+	lights: list[PTStageLight] = field(default_factory=list)
+	contrast: int = 0
+	bright: int = 0
+	vect_light: PTVector3 = field(default_factory=PTVector3)
 
 
 """ACTORS"""
