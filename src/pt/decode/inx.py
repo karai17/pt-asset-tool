@@ -35,7 +35,24 @@ def decode_motion(sm_motioninfo):
 	sm_motioninfo.MotionKeyWord_2 = 0
 
 
-def decode(path: str) -> PTActorModel | PTStageModel | None:
+def resolve_modelpath(dirpath: str, filename: str, root: str | None, ext: str) -> str:
+	"""
+	Resolve a model file reference the way the engine does (smRead3d.cpp
+	smASE_Read -> smFindFile -> ChangeFileExt): the szModel/szMotion fields
+	hold game-root-relative paths authored as szDirecotry + value (fileread.cpp
+	:530), so the extension is swapped to the target type and the path is
+	resolved against the game root, not the INX's own directory.
+	"""
+	rootname, _ = get_filename(filename)
+	if root and "\\" in filename:
+		relpath = os.path.splitext(filename.replace("\\", os.path.sep))[0]
+		modelpath = os.path.join(root, relpath + ext)
+		if os.path.exists(modelpath):
+			return modelpath
+	return os.path.join(dirpath, rootname + ext)
+
+
+def decode(path: str, root: str | None = None) -> PTActorModel | PTStageModel | None:
 	"""
 	Import an INX file as the entry point of loading a 3D model.
 
@@ -63,14 +80,12 @@ def decode(path: str) -> PTActorModel | PTStageModel | None:
 	modelfilename = decode_string(sm_modelinfo.szModelFile)
 	modelpath = None
 	if modelfilename:
-		modelroot, modelext = get_filename(modelfilename)
-		modelpath = os.path.join(dirpath, modelroot + ".smd")
+		modelpath = resolve_modelpath(dirpath, modelfilename, root, ".smd")
 
 	motionfilename = decode_string(sm_modelinfo.szMotionFile)
 	motionpath = None
 	if motionfilename:
-		motionroot, motionext = get_filename(motionfilename)
-		motionpath = os.path.join(dirpath, motionroot + ".smb")
+		motionpath = resolve_modelpath(dirpath, motionfilename, root, ".smb")
 
 	# TODO: submodels
 	# submodelfilename = decode_string(sm_modelinfo.szSubModelFile)

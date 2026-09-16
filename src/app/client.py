@@ -7,6 +7,7 @@ from pt.patch import bmp, tga, wav
 from pt.decode import inx, smd
 from pt.encode import json, gltf
 from pt.encode import png
+from pt.utils import decode_string
 
 from app.utils import ftime, now
 
@@ -83,7 +84,7 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 	for filepath in bucket:
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
-		fdata = inx.decode(inpath)
+		fdata = inx.decode(inpath, args.input)
 
 		if not fdata:
 			print(f"Invalid INX file: {filepath}")
@@ -103,25 +104,26 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 	print(f"Decoded INX files in {ftime(t0, t1)} seconds.")
 
 
+def _referenced_models(inxbucket: list, args: Namespace) -> set[str]:
+	"""Collect the SMD files referenced by the INX bucket via szModelFile."""
+	referenced = set()
+
+	for filepath in inxbucket:
+		inpath = os.path.join(args.input, filepath)
+		with open(inpath, "rb") as f:
+			modelfilename = decode_string(f.read(64))
+		if not modelfilename:
+			continue
+		modelpath, _ = os.path.splitext(modelfilename.replace("\\", os.path.sep))
+		referenced.add((modelpath + ".smd").casefold())
+
+	return referenced
+
+
 def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 	"""Decode SMD model files."""
-	bucket = []
-
-	# FIXME: instead of the name of the inx file we need to check the name of the
-	# smd file that the inx file points to!
-
-	for smdpath in smdbucket:
-		found = False
-		root, ext = os.path.splitext(smdpath)
-
-		for inxpath in inxbucket:
-			if root in inxpath:
-				found = True
-				break
-
-		if not found:
-			bucket.append(smdpath)
-
+	referenced = _referenced_models(inxbucket, args)
+	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
 	print(f"Decoding {len(bucket)} SMD files...")
 	t0 = now()
 

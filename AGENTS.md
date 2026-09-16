@@ -10,6 +10,7 @@ Read:
 
 Read on demand:
 
+- `docs/*` - technical documentation about the game engine
 - `src/pt/decode/*` - various decoders from the old formats
 - `src/pt/encode/*` - various encoders to the new formats
 - `src/pt/patch/*` - various patchers that fix malformed files to the same format
