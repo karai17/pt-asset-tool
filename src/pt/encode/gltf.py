@@ -6,6 +6,7 @@ from argparse import Namespace
 from ctypes import *
 from dataclasses import asdict
 from pathlib import Path
+from PIL import Image as PILImage
 from pygltflib import (
 	GLTF2,
 	Accessor,
@@ -49,6 +50,108 @@ from pt.utils import (
 
 
 """ ANIMATIONS """
+
+
+def encode_uv_animation(gltf: GLTF2, anim: dict, node_ids: list[int]) -> None:
+	"""
+	Export one flipbook as a KHR_texture_transform uv animation walking the
+	atlas rects in frame order (the engine swaps whole textures, not uv offsets;
+	glTF uv animation is the portable equivalent). Base time matches the
+	renderer: RendStatTime is the Win32 tick count in ms and Shift_FrameSpeed
+	the right shift, so each frame lasts 2^speed ms. Mismatched per-frame
+	durations would need non-uniform keys; all shipped data runs at a constant
+	2^Shift_FrameSpeed ms (FrameMask = count-1 anim2..anim16,
+	smRend3d.cpp:3852-3854).
+
+	node_ids: mesh node ids carrying the animated primitive. The transform
+	rides the channel target's KHR_texture_transform extension, which glTF
+	defines only on TextureInfo.
+	"""
+	if not node_ids:
+		return
+
+	duration = (1 << anim["speed"]) * anim["count"] / 1000
+
+	times = BufferReader(4 * (anim["count"] + 1))
+	values = BufferReader(4 * 6 * (anim["count"] + 1))
+
+	for k in range(anim["count"]):
+		times.write(c_float(k * (1 << anim["speed"]) / 1000))
+		rect = anim["rects"][k]
+		values.write((c_float*6)(
+			rect[0], 1 - rect[1] - rect[3],
+			rect[2], rect[3],
+			0, 0
+		))
+
+	times.write(c_float(duration))
+	values.write((c_float*6)(
+		anim["offset"][0], anim["offset"][1],
+		anim["scale"][0], anim["scale"][1],
+		0, 0
+	))
+
+	gltf.buffers.append(Buffer(
+		uri = "data:application/octet-stream;base64," + base64.b64encode(times.get_data()).decode(),
+		byteLength = len(times.data)
+	))
+
+	gltf.bufferViews.append(BufferView(
+		buffer = len(gltf.buffers)-1,
+		byteLength = len(times.data)
+	))
+
+	gltf.accessors.append(Accessor(
+		bufferView = len(gltf.bufferViews)-1,
+		componentType = FLOAT,
+		count = anim["count"] + 1,
+		type = "SCALAR",
+		min = [ 0 ],
+		max = [ duration ]
+	))
+
+	input_accessor = len(gltf.accessors)-1
+
+	gltf.buffers.append(Buffer(
+		uri = "data:application/octet-stream;base64," + base64.b64encode(values.get_data()).decode(),
+		byteLength = len(values.data)
+	))
+
+	gltf.bufferViews.append(BufferView(
+		buffer = len(gltf.buffers)-1,
+		byteLength = len(values.data)
+	))
+
+	gltf.accessors.append(Accessor(
+		bufferView = len(gltf.bufferViews)-1,
+		componentType = FLOAT,
+		count = anim["count"] + 1,
+		type = "VEC3"
+	))
+
+	output_accessor = len(gltf.accessors)-1
+
+	gltf.extensionsUsed.append("KHR_texture_transform")
+
+	gltf_animation = next((ani for ani in gltf.animations if ani.name == "tex-anim"), None)
+	if gltf_animation is None:
+		gltf_animation = Animation(name = "tex-anim")
+		gltf.animations.insert(0, gltf_animation)
+
+	for node_id in node_ids:
+		gltf_animation.samplers.append(Sampler(
+			input = input_accessor,
+			output = output_accessor
+		))
+
+		gltf_animation.channels.append(AnimationChannel(
+			sampler = len(gltf_animation.samplers)-1,
+			target = AnimationChannelTarget(
+				node = node_id,
+				path = "uv",
+				extensions = { "KHR_texture_transform": { "index": anim["texture"] } }
+			)
+		))
 
 
 # loop through list of key frames and fill in any frame gaps with new key frames
@@ -316,7 +419,7 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 """ PRIMITIVES """
 
 
-def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) -> list[dict[str,]]:
+def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None) -> list[dict[str,]]:
 	"""Create a list of untangled primitives."""
 	prims = []
 	if not object.texture_coords or not object.vertices or not object.faces:
@@ -333,6 +436,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 		prim = {
 			"material": material_id,
 			"count": len(faces)*3,
+			"anim_material": material_id in anim_material_ids,
 			"positionbuffer": BufferReader(vert_words*3),
 			"normalbuffer": BufferReader(vert_words*3),
 			"texcoord0buffer": BufferReader(vert_words*2),
@@ -460,6 +564,52 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node]) ->
 """ GLTF """
 
 
+ANIM_ATLAS_COLUMNS = 4
+
+
+def next_pow2(value: int) -> int:
+	return 1 << (value - 1).bit_length()
+
+
+def pack_anim_atlas(paths: list[Path]) -> tuple[list[list[float]], tuple[int, int]]:
+	"""Pack flipbook frames into a uniform grid (up to ANIM_ATLAS_COLUMNS per
+	row) on a canvas whose width/height are each a power of two. Returns the
+	normalized uv rects (x, y, w, h, origin top-left) in frame order plus the
+	canvas size. Frame k sits at column k % columns, row k // columns; the uv
+	animation walks the rects in the same order the engine walks its frame
+	list (smRend3d.cpp:3852-3854). All rects share one size, so a
+	KHR_texture_transform animation only needs a uniform scale."""
+	sizes = [PILImage.open(path).size for path in paths]
+	columns = min(len(paths), ANIM_ATLAS_COLUMNS)
+	rows = (len(paths) + columns - 1) // columns
+	cell_w = max(size[0] for size in sizes)
+	cell_h = max(size[1] for size in sizes)
+
+	width = next_pow2(columns * cell_w)
+	height = next_pow2(rows * cell_h)
+
+	rects = [
+		[
+			(k % columns) * cell_w / width,
+			(k // columns) * cell_h / height,
+			cell_w / width,
+			cell_h / height
+		]
+		for k in range(len(paths))
+	]
+
+	return rects, (width, height)
+
+
+def write_anim_atlas(path: Path, paths: list[Path], rects: list[list[float]], size: tuple[int, int]) -> None:
+	atlas = PILImage.new("RGBA", size)
+	for frame_path, rect in zip(paths, rects):
+		frame = PILImage.open(frame_path).convert("RGBA")
+		atlas.paste(frame, (round(rect[0] * size[0]), round(rect[1] * size[1])))
+	path.parent.mkdir(exist_ok=True, parents=True)
+	atlas.save(path)
+
+
 def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> None:
 	"""Encodes the interal model structure to a GLTF file and writes it to disk."""
 	# invalid model data
@@ -582,6 +732,70 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	segments = str(path).split(os.path.sep)
 	fs_dir = os.path.sep.join(segments[:-1])
 
+	anim_materials = []
+	for i, material in enumerate(model.materials):
+		if material.texture_map.anim_frames:
+			anim_materials.append((i, material))
+
+	# flipbook frames become one atlas texture per material; KHR_texture_transform
+	# uv animations walk the atlas slots at the engine's frame rate. Frames not
+	# on disk are dropped (up to 16 distinct paths); the frame list is authored
+	# with power-of-two counts (anim2..anim16), so a gap means the file is missing
+	# on disk and the engine would have shown the same gap (SetTexture with a null
+	# texture, smRend3d.cpp:3857).
+	anim_atlas = []
+	for i, material in anim_materials:
+		frames = []
+		for frame_path in material.texture_map.anim_frames:
+			root, ext = get_filename(frame_path)
+
+			if args.png:
+				uri = (root + ".png").lower()
+			else:
+				uri = root + ext
+
+			texpath = os.path.join(fs_dir, uri)
+
+			if os.path.isfile(texpath):
+				frames.append(Path(texpath))
+
+		if len(frames) == 0:
+			continue
+
+		rects, atlas_size = pack_anim_atlas(frames)
+		root, ext = get_filename(material.texture_map.anim_frames[0])
+		atlas_name = (root + "-anim").lower()
+		atlas_path = Path(os.path.join(fs_dir, atlas_name + ".png"))
+		write_anim_atlas(atlas_path, frames, rects, atlas_size)
+
+		anim_atlas.append({
+			"material": i,
+			"image": atlas_name + ".png",
+			"rects": rects,
+			"speed": material.anim_speed,
+			"count": len(frames),
+			"mask": material.anim_mask,
+			"frame0": material.mat_frame
+		})
+
+	# atlas textures replace the static diffuse for flipbook materials; they are
+	# registered before the material loop so the override below can reference
+	# them by index, and the frame-`frame0` transform doubles as the animation's
+	# base pose
+	for anim in anim_atlas:
+		gltf.images.append(Image(
+			uri = anim["image"]
+		))
+
+		gltf.textures.append(Texture(
+			source = len(gltf.images)-1
+		))
+
+		anim["texture"] = len(gltf.textures)-1
+		rect = anim["rects"][anim["frame0"] % anim["count"]]
+		anim["offset"] = [ rect[0], 1 - rect[1] - rect[3] ]
+		anim["scale"] = [ rect[2], rect[3] ]
+
 	for i, material in enumerate(model.materials):
 		mtl = Material()
 		gltf.materials.append(mtl)
@@ -624,6 +838,23 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 					mtl.pbrMetallicRoughness = PbrMetallicRoughness(
 						baseColorTexture = TextureInfo(index = len(gltf.textures)-1),
+						metallicFactor = 0
+					)
+
+				# animated materials show frame `frame0` at rest (the engine only
+				# samples the anim list, smRend3d.cpp:3852-3854)
+				for anim in (a for a in anim_atlas if a["material"] == i and a["texture"] is not None):
+					mtl.pbrMetallicRoughness = PbrMetallicRoughness(
+						baseColorTexture = TextureInfo(
+							index = anim["texture"],
+							extensions = {
+								"KHR_texture_transform": {
+									"offset": anim["offset"],
+									"scale": anim["scale"],
+									"rotation": 0
+								}
+							}
+						),
 						metallicFactor = 0
 					)
 
@@ -702,11 +933,15 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 	""" MESHES """
 
+	anim_ids = { a["material"] for a in anim_atlas }
+
 	for object in model.objects:
-		untangled_prims = make_primitives(object, gltf.nodes)
+		untangled_prims = make_primitives(object, gltf.nodes, anim_ids)
 		prim_pass = []
 		prim_col = []
 		prim_colonly = []
+		prim_anim = []
+		anim_node_refs = []
 
 		m = object.transform
 
@@ -717,8 +952,9 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			z =  m._42 * SCALE_INCH_TO_METER
 		)
 
-		# Priston Tale stores but does not use the transform scale
-		scale = PTVector3()
+		# Priston Tale stores but does not use the transform scale; node scale
+		# must stay unit or the mesh collapses to a point
+		scale = PTVector3(1, 1, 1)
 		rotation = PTQuaternion()
 
 		if hasattr(object, "transform_rotate"):
@@ -867,13 +1103,40 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				p.attributes.WEIGHTS_0 = len(gltf.buffers)-1
 
+			# flipbook prims get their own mesh so the uv animation only moves
+			# their texture coordinates
+			if prim["anim_material"]:
+				prim_anim.append((prim["material"], p))
 			# animated objects are not collidable
-			if (hasattr(object, "animation") and object.animation) or gltf.materials[prim["material"]].name.find("-pass") >= 0:
+			elif (hasattr(object, "animation") and object.animation) or gltf.materials[prim["material"]].name.find("-pass") >= 0:
 				prim_pass.append(p)
 			elif gltf.materials[prim["material"]].name.find("-wall") >= 0:
 				prim_colonly.append(p)
 			else:
 				prim_col.append(p)
+
+			if len(prim_anim) >= 256:
+				gltf.meshes.append(Mesh(
+					name = object.name,
+					primitives = [ p for _, p in prim_anim ]
+				))
+
+				node = Node(
+					name = f"{object.name}-{len(gltf.nodes)}-anim",
+					mesh = len(gltf.meshes)-1,
+				)
+
+				# nodes either have a local transform or a skin, never both
+				if hasattr(object, "physique") and object.physique:
+					node.skin = 0
+				else:
+					node.translation = [ position.x, position.y, position.z ]
+					node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
+					node.scale = [ scale.x, scale.y, scale.z ]
+
+				gltf.nodes.append(node)
+				anim_node_refs += [ (material_id, len(gltf.nodes)-1) for material_id, p in prim_anim ]
+				prim_anim = []
 
 			# we want to limit the number of primitives per mesh to 256 (godot limit)
 			if len(prim_col) >= 256:
@@ -943,6 +1206,28 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				prim_pass = []
 
 		# any primitives left over get put into a final mesh and node
+		if len(prim_anim) > 0:
+			gltf.meshes.append(Mesh(
+				name = object.name,
+				primitives = [ p for _, p in prim_anim ]
+			))
+
+			node = Node(
+				name = f"{object.name}-{len(gltf.nodes)}-anim",
+				mesh = len(gltf.meshes)-1,
+			)
+
+			# nodes either have a local transform or a skin, never both
+			if hasattr(object, "physique") and object.physique:
+				node.skin = 0
+			else:
+				node.translation = [ position.x, position.y, position.z ]
+				node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
+				node.scale = [ scale.x, scale.y, scale.z ]
+
+			gltf.nodes.append(node)
+			anim_node_refs += [ (material_id, len(gltf.nodes)-1) for material_id, p in prim_anim ]
+
 		if len(prim_col) > 0:
 			gltf.meshes.append(Mesh(
 				name = object.name,
@@ -1033,6 +1318,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 					name += "-loop" # TODO: flag this for godot and instead put it in extras by default?
 
 				process_animation(gltf, bone.animation, name, bone._id, track, animation)
+
+	""" TEXTURE ANIMATIONS """
+
+	for anim in anim_atlas:
+		encode_uv_animation(gltf, anim, [ node_id for material_id, node_id in anim_node_refs if material_id == anim["material"] ])
 
 	""" LIGHTS """
 

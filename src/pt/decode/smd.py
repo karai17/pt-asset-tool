@@ -573,129 +573,145 @@ def decode_actor_physique(sm_modelbuffer: BufferReader, sm_object: smOBJ3D, has_
 def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	sm_material = sm_modelbuffer.read(smMATERIAL)
 
-	# If the material is not flagged to be used, we skip it entirely.
-	if sm_material.InUse > 0:
-		material = PTModelMaterial()
-		material.name = decode_material_name(sm_material.UseState, sm_material.BlendType)
-		material.num_textures = sm_material.TextureCounter
-		material.num_anim_textures = sm_material.AnimTexCounter
-		material.ambient = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ] # not in SMD, defaulting to diffuse
-		material.diffuse = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ]
-		material.specular = [ 0.9, 0.9, 0.9 ]
-		material.transparent = True if sm_material.Transparency > 0 else False
-		material.selfillum = True if sm_material.SelfIllum > 0 else False
-		material.two_sided = True if sm_material.TwoSide > 0 else False
-		# MeshState / UseState are built from the material script flags at
-		# import (smTexture.cpp:941-1013 AddMaterial) using sMATS_SCRIPT_*
-		# (smRead3d.h:44-77) and SMMAT_STAT_CHECK_FACE = 0x1
-		# (smType.h:649).
-		material.mesh_flags = sm_material.MeshState # Reference: smTexture.cpp::smMATERIAL_GROUP::AddMaterial (line ~944)
-		material.collide = True if (sm_material.MeshState % 2) == 1 else False
+	# The engine loads the blob for InUse != 0 and then overlays it at
+	# smMaterial[MatNum] only on success (smTexture.cpp:735). A partial decode
+	# here would desync face material ids, so bail out entirely instead.
+	if sm_material.InUse == 0:
+		return None
 
-		# FIXME: wrong but convenient (for now)
-		if not material.collide:
-			material.collide = sm_material.MeshState & int.from_bytes(b"\x01\x00\x00") == int.from_bytes(b"\x01\x00\x00") # orgwater flag
+	material = PTModelMaterial()
+	material.name = decode_material_name(sm_material.UseState, sm_material.BlendType)
+	material.num_textures = sm_material.TextureCounter
+	material.num_anim_textures = sm_material.AnimTexCounter
+	material.anim_speed = sm_material.Shift_FrameSpeed
+	material.anim_mask = sm_material.FrameMask
+	material.mat_frame = sm_material.MatFrame
+	material.ambient = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ] # not in SMD, defaulting to diffuse
+	material.diffuse = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ]
+	material.specular = [ 0.9, 0.9, 0.9 ]
+	material.transparent = True if sm_material.Transparency > 0 else False
+	material.selfillum = True if sm_material.SelfIllum > 0 else False
+	material.two_sided = True if sm_material.TwoSide > 0 else False
+	# MeshState / UseState are built from the material script flags at
+	# import (smTexture.cpp:941-1013 AddMaterial) using sMATS_SCRIPT_*
+	# (smRead3d.h:44-77) and SMMAT_STAT_CHECK_FACE = 0x1
+	# (smType.h:649).
+	material.mesh_flags = sm_material.MeshState # Reference: smTexture.cpp::smMATERIAL_GROUP::AddMaterial (line ~944)
+	material.collide = True if (sm_material.MeshState % 2) == 1 else False
 
+	# FIXME: wrong but convenient (for now)
+	if not material.collide:
+		material.collide = sm_material.MeshState & int.from_bytes(b"\x01\x00\x00") == int.from_bytes(b"\x01\x00\x00") # orgwater flag
 
-		"""
-		if ( smMaterial[MatNum].Transparency==0 )
-			smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
+	"""
+	if ( smMaterial[MatNum].Transparency==0 )
+		smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
 
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WIND) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WIND) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX1) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX1;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX2) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX2;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ1) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
+		smMaterial[MatNum].MeshState = 0;
+	}
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WATER) ) {
+		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WATER;
+		smMaterial[MatNum].MeshState = 0;
+	}
+
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_NOTPASS) ) {
+		smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
+	} else {
+		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_PASS) ) {
 			smMaterial[MatNum].MeshState = 0;
 		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX1) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX1;
-			smMaterial[MatNum].MeshState = 0;
-		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX2) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX2;
-			smMaterial[MatNum].MeshState = 0;
-		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ1) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
-			smMaterial[MatNum].MeshState = 0;
-		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-			smMaterial[MatNum].MeshState = 0;
-		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-			smMaterial[MatNum].MeshState = 0;
-		}
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WATER) ) {
-			smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WATER;
-			smMaterial[MatNum].MeshState = 0;
-		}
+	}
 
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_NOTPASS) ) {
-			smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
-		} else {
-			if ( (aseMaterial->ScriptState&sMATS_SCRIPT_PASS) ) {
-				smMaterial[MatNum].MeshState = 0;
-			}
-		}
-
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_RENDLATTER) ) {
-			smMaterial[MatNum].MeshState |= sMATS_SCRIPT_RENDLATTER;
-		}
-		if( (aseMaterial->ScriptState & sMATS_SCRIPT_CHECK_ICE) )
-			smMaterial[MatNum].MeshState |= sMATS_SCRIPT_CHECK_ICE;
-		if( (aseMaterial->ScriptState & sMATS_SCRIPT_ORG_WATER) )
-			smMaterial[MatNum].MeshState = sMATS_SCRIPT_ORG_WATER;
-		"""
+	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_RENDLATTER) ) {
+		smMaterial[MatNum].MeshState |= sMATS_SCRIPT_RENDLATTER;
+	}
+	if( (aseMaterial->ScriptState & sMATS_SCRIPT_CHECK_ICE) )
+		smMaterial[MatNum].MeshState |= sMATS_SCRIPT_CHECK_ICE;
+	if( (aseMaterial->ScriptState & sMATS_SCRIPT_ORG_WATER) )
+		smMaterial[MatNum].MeshState = sMATS_SCRIPT_ORG_WATER;
+	"""
 
 
-		# If we have textures and paths to those textures, we need to add
-		# texture mapping data.
-		texpaths_len = int.from_bytes(sm_modelbuffer.read(c_uint32), byteorder="little")
+	# If we have textures and paths to those textures, we need to add
+	# texture mapping data.
+	texpaths_len = int.from_bytes(sm_modelbuffer.read(c_uint32), byteorder="little")
 
-		if sm_material.TextureCounter > 0 and texpaths_len > 0:
-			texpaths = []
+	if sm_material.TextureCounter > 0 and texpaths_len > 0:
+		texpaths = []
 
-			sm_texpaths = sm_modelbuffer.read(c_uint8 * texpaths_len)
-			sm_texpaths = bytes(sm_texpaths).split(b"\x00")
+		sm_texpaths = sm_modelbuffer.read(c_uint8 * texpaths_len)
+		sm_texpaths = bytes(sm_texpaths).split(b"\x00")
 
-			for j in range(sm_material.TextureCounter):
-				if sm_texpaths[j*2][-1] > int.from_bytes(b"\x7F", byteorder="little"): # invalid data
-					break
+		for j in range(sm_material.TextureCounter):
+			if sm_texpaths[j*2][-1] > int.from_bytes(b"\x7F", byteorder="little"): # invalid data
+				break
 
-				texpath = decode_string(sm_texpaths[j*2])
-				texpaths.append(texpath)
+			texpath = decode_string(sm_texpaths[j*2])
+			texpaths.append(texpath)
 
-			if len(texpaths) > 0:
-				material.texture_map.diffuse_name = decode_texture_map_name(
-					sm_material.TextureStageState[0],
-					sm_material.TextureFormState[0]
+		if len(texpaths) > 0:
+			material.texture_map.diffuse_name = decode_texture_map_name(
+				sm_material.TextureStageState[0],
+				sm_material.TextureFormState[0]
+			)
+			material.texture_map.diffuse_path = texpaths[0] # diffuse texture is the first texture
+
+		# The second texture stage rides the NextTex chain as TEXCOORD_1 and is
+		# added on top of the diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630):
+		# baked *LightingMap.bmp lightmaps in the *LM_ dungeon stages, or
+		# selfillum maps elsewhere (e.g. actor glow maps)
+		if len(texpaths) == 2:
+			if "lightingmap" in texpaths[1].casefold():
+				material.texture_map.lightmap_name = decode_texture_map_name(
+					sm_material.TextureStageState[1],
+					sm_material.TextureFormState[1]
 				)
-				material.texture_map.diffuse_path = texpaths[0] # diffuse texture is the first texture
+				material.texture_map.lightmap_path = texpaths[1]
+			else:
+				material.texture_map.selfillum_name = decode_texture_map_name(
+					sm_material.TextureStageState[1],
+					sm_material.TextureFormState[1]
+				)
+				material.texture_map.selfillum_path = texpaths[1] # self illumination texture is the second texture
 
-			# The second texture stage rides the NextTex chain as TEXCOORD_1 and is
-			# added on top of the diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630):
-			# baked *LightingMap.bmp lightmaps in the *LM_ dungeon stages, or
-			# selfillum maps elsewhere (e.g. actor glow maps)
-			if len(texpaths) == 2:
-				if "lightingmap" in texpaths[1].casefold():
-					material.texture_map.lightmap_name = decode_texture_map_name(
-						sm_material.TextureStageState[1],
-						sm_material.TextureFormState[1]
-					)
-					material.texture_map.lightmap_path = texpaths[1]
-				else:
-					material.texture_map.selfillum_name = decode_texture_map_name(
-						sm_material.TextureStageState[1],
-						sm_material.TextureFormState[1]
-					)
-					material.texture_map.selfillum_path = texpaths[1] # self illumination texture is the second texture
+		# anim2:..anim16: flipbook frames: the (Name, NameA) pairs after the
+		# TextureCounter textures (smTexture.cpp:759-764). Rendered as a texture
+		# swap: frame = (RendStatTime>>Shift_FrameSpeed)&FrameMask, SMTEX_AUTOANIMATION = 0x100
+		# (smRend3d.cpp:3852-3854).
+		if sm_material.AnimTexCounter > 0:
+			material.texture_map.anim_frames = [
+				decode_string(sm_texpaths[(sm_material.TextureCounter + k) * 2])
+				for k in range(sm_material.AnimTexCounter)
+			]
 
-			# MapOpacity != 0 means *MAP_OPACITY in the ASE; the engine loads the
-			# diffuse bitmap with the opacity map as its NameA (smTexture.cpp:874-912)
-			if len(texpaths) > 0 and sm_material.MapOpacity == 1:
-				material.texture_map.opacity_name = ""
-				material.texture_map.opacity_path = texpaths[0] # opacity uses the diffuse texture
-		return material
+		# MapOpacity != 0 means *MAP_OPACITY in the ASE; the engine loads the
+		# diffuse bitmap with the opacity map as its NameA (smTexture.cpp:874-912)
+		if len(texpaths) > 0 and sm_material.MapOpacity == 1:
+			material.texture_map.opacity_name = ""
+			material.texture_map.opacity_path = texpaths[0] # opacity uses the diffuse texture
+	return material
 
 
 def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]:

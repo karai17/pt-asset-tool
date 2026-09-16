@@ -51,7 +51,7 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 				# (OnSever.cpp:6504-6506); the 4096-unit circle is defined in
 				# smSin.h:25 (ANGLE_360).
 				rotation = angles_to_quaternion(sm_npc.ax, sm_npc.ay, sm_npc.az),
-				scale = PTVector3()
+				scale = PTVector3(1, 1, 1)
 			))
 
 	return npcs

@@ -60,7 +60,7 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 ### Client
 
 * Texture link list for multi-texture materials (see `docs/texlink.md`)
-* Animated texture paths (anim2:..anim16: material frame lists)
+* Animated texture paths (anim2:..anim16: material frame lists) - decoded to `PTTextureMap.anim_frames`, exported as a `KHR_texture_transform` uv animation over a per-material frame atlas (see `docs/animated-textures.md`)
 * INX animation information for faces / etc.
 * Encode models as ASE
 

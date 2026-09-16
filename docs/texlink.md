@@ -230,12 +230,60 @@ exactly the lightmap atlas footprint.
   `TEXCOORD_1` only if *some* face has a second set, others read it as the
   zero UV.
 
-## 7. Known limits
+## 7. Animated textures (findings.md gap #3, resolved)
+
+The same (Name, NameA) blob also carries the flipbook frames. After the
+`TextureCounter` texture pairs come `AnimTexCounter` more pairs
+(`smTexture.cpp:759-764`), filled by `ChangeMaterialToAnimation`
+(`smTexture.cpp:1110-1136`) when the ASE material name carries an
+`anim2:`..`anim16:` script. The list is authored as power-of-two counts and
+the frames are expected in the same directory as the diffuse
+(`AddMaterial` derives it from `BITMAP[0]`, smTexture.cpp:1002-1016).
+
+Rendering is a whole-texture swap, not a uv scroll (smRend3d.cpp:3835-3854,
+`SMTEX_TYPE_ANIMATION`):
+
+- frame index = `(RendStatTime >> Shift_FrameSpeed) & FrameMask`, with
+  `RendStatTime` the Win32 tick count in ms and `SMTEX_AUTOANIMATION = 0x100`
+  in `AnimationFrame`; a non-auto value pins the frame (`SetMaterialAnimFrame`).
+- `MatFrame` is a render-batch cache stamp, not frame data.
+- the static `smTexture[0]` is never sampled while `TextureType ==
+  SMTEX_TYPE_ANIMATION` (all shipped animated materials: `TextureType = 0x1`,
+  `Shift_FrameSpeed = 6`, `AnimationFrame = 0x100`).
+
+Decoder (`src/pt/decode/smd.py`): `decode_material` reads the animation
+pairs after the texture pairs into `PTTextureMap.anim_frames`; the timing
+fields surface as `PTModelMaterial.anim_speed` (Shift_FrameSpeed),
+`anim_mask` (FrameMask) and `mat_frame` (MatFrame). The `InUse == 0` skip is
+now an early `return None` (the engine overlays decoded data onto
+`smMaterial[MatNum]` only on success, smTexture.cpp:735, so a skipped
+material must not shift the array; shipped data has none).
+
+Encoder (`src/pt/encode/gltf.py`), per animated material:
+
+- the frames found on disk (basenames resolved against the output folder,
+  `.png` when `--png`) are packed into `<first-frame-root>-anim.png`, a
+  uniform grid of up to `ANIM_ATLAS_COLUMNS = 4` cells per row on a
+  power-of-two canvas; missing frames are dropped (the engine would have
+  shown a gap too - `SetTexture` with a null handle).
+- the glTF material's `baseColorTexture` points at the atlas with a
+  `KHR_texture_transform` showing frame `MatFrame % count` at rest.
+- the faces using the material go into a separate `-anim` mesh node so the
+  uv animation cannot touch static primitives; the same transform animates
+  as `tex-anim`, one `uv` channel per node, keys every `2^speed` ms (frame
+  k = column k % 4, row k // 4; last key wraps to frame 0).
+
+`KHR_texture_transform` on an animation channel target is an emerging
+convention (the glTF spec defines uv animations only as an extension
+draft); three.js reads it, Blender and Godot currently ignore it - the
+static per-material transform still shows a correct frame everywhere.
+
+## 8. Known limits
 
 - `hTexture_ptr` is dead on disk and stays unused (material id determines the
   texture).
 - Materials with 3+ texture stages would need `TEXCOORD_2+`; none exist in
   shipped data.
-- Animated textures (`AnimTexCounter`, `anim2:`..`anim16:` materials) are a
-  separate gap - their frame lists live in the material blob's animation
-  section and are not decoded yet (findings.md gap #3).
+- The uv animation export assumes uniform per-frame duration (true for all
+  shipped data); a material with per-frame timing would need non-uniform
+  keys.

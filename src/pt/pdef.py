@@ -66,6 +66,7 @@ class PTTextureMap:
 	opacity_path: str | None = None
 	lightmap_name: str | None = None
 	lightmap_path: str | None = None
+	anim_frames: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -121,6 +122,9 @@ class PTModelMaterial:
 	mesh_flags: int = 0
 	collide: bool = False
 	texture_map: PTTextureMap = field(default_factory=PTTextureMap)
+	anim_speed: int = 0
+	anim_mask: int = 0
+	mat_frame: int = 0
 
 
 """TRANSFORMS"""
@@ -130,7 +134,7 @@ class PTModelMaterial:
 class PTObjectTransform(PTMat4):
 	position: PTVector3 = field(default_factory=PTVector3)
 	rotation: PTQuaternion = field(default_factory=PTQuaternion)
-	scale: PTVector3 = field(default_factory=PTVector3)
+	scale: PTVector3 = field(default_factory=lambda: PTVector3(1, 1, 1))
 
 
 """ANIMATIONS"""
@@ -296,7 +300,7 @@ class PTServerSpawnCharacter:
 	npc: str | None = None
 	position: PTVector3 = field(default_factory=PTVector3)
 	rotation: PTQuaternion = field(default_factory=PTQuaternion)
-	scale: PTVector3 = field(default_factory=PTVector3)
+	scale: PTVector3 = field(default_factory=lambda: PTVector3(1, 1, 1))
 
 
 @dataclass
