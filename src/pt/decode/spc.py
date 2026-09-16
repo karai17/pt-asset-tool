@@ -31,7 +31,7 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 		sm_npc = sm_buffer.read(smTRNAS_PLAYERINFO)
 
 		# code is checked against smTRANSCODE_ADD_NPC (0x48470070,
-		# smPacket.h:117) by the server's NPC iteration (OnSever.cpp:7699:
+		# smPacket.h:117) by the server's NPC iteration (OnSever.cpp:7764:
 		# "if ( TransCharFixed[cnt].code ) OpenNpc(...)").
 		if sm_npc.size == 504:
 			char, ext = get_filename(decode_string(sm_npc.smCharInfo.szModelName))
@@ -42,10 +42,16 @@ def decode(path: str) -> list[PTServerSpawnCharacter]:
 				name = decode_string(sm_npc.smCharInfo.szName),
 				char = char.casefold(),
 				npc = npc.casefold(),
+				# OpenNpc copies x/y/z verbatim into smCHAR::pX/pY/pZ which is
+				# fixed point: inches << FLOATNS(8) (OnSever.cpp:6496-6498 vs
+				# pX>>FLOATNS readers at 5330; SPP stores plain inches by
+				# contrast). Contrast test: ruin-1 keeper raw x 4235537 ->
+				# 16545 in = 420 m, inside the stage bounds; unscaled it would
+				# be 107 km off-map.
 				position = PTVector3(
-					x = sm_npc.x * SCALE_INCH_TO_METER,
-					y = sm_npc.y * SCALE_INCH_TO_METER,
-					z = sm_npc.z * SCALE_INCH_TO_METER
+					x = sm_npc.x / 256 * SCALE_INCH_TO_METER,
+					y = sm_npc.y / 256 * SCALE_INCH_TO_METER,
+					z = sm_npc.z / 256 * SCALE_INCH_TO_METER
 				),
 				# angle triple is applied verbatim to smCHAR::Angle by OpenNpc
 				# (OnSever.cpp:6504-6506); the 4096-unit circle is defined in

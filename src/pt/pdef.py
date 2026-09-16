@@ -364,6 +364,12 @@ class PTServerCharacter:
 	quest_code: int = 0
 	quest_param: int = 0
 	zhoon_path: str | None = None
+	size: str | None = None
+	size_level: int = -1
+	sound: str | None = None
+	rank: int = 0
+	model_scale: float = 1
+	arrow_position: list[int] = field(default_factory=list)
 
 	CollectMoney: bool = False
 	WowEvent: bool = False
@@ -381,173 +387,137 @@ class PTServerCharacter:
 
 
 @dataclass
-class PTServerMonster:
-	wPlayClass: bool = False
-	Size: bool = False
-	szName: bool = False
-	Level: bool = False
-	wPlayClass2: bool = False
-	ClassCode: bool = False
-	GenerateGroup: bool = False
-	IQ: bool = False
-	Nature: bool = False
-	Real_Sight: bool = False
-	Life: bool = False
-	Life2: bool = False
-	Attack_Damage: bool = False
-	SkillDamage: bool = False
-	SkillRating: bool = False
-	SkillDistance: bool = False
-	SkillRange: bool = False
-	SkillCurse: bool = False
-	Absorption: bool = False
-	Chance_Block: bool = False
-	Defence: bool = False
-	Attack_Speed: bool = False
-	Attack_Rating: bool = False
-	SpAttackPercetage: bool = False
-	Shooting_Range: bool = False
-	Resistance_sITEMINFO_BIONIC: bool = False
-	Resistance_sITEMINFO_LIGHTING: bool = False
-	Resistance_sITEMINFO_ICE: bool = False
-	Resistance_sITEMINFO_FIRE: bool = False
-	Resistance_sITEMINFO_POISON: bool = False
-	Resistance_sITEMINFO_WATER: bool = False
-	Resistance_sITEMINFO_WIND: bool = False
-	Resistance_sITEMINFO_EARTH: bool = False
-	Type: bool = False
-	IsUndead: bool = False
-	MoveRange: bool = False
-	MoveType: bool = False
-	SoundEffect: bool = False
-	SoundEffect2: bool = False
-	Exp: bool = False
-	FallItemMax: bool = False
-	FallItems: bool = False
-	FallItems_Plus: bool = False
-	AllSeeItem: bool = False
-	_DropGold: bool = False
-	_DropEmpty: bool = False
-	State: bool = False
-	szModelName: bool = False
-	Name: bool = False
-	ActiveHour: bool = False
-	ArrowPosi: bool = False
-	SizeLevel: bool = False
-	PotionCount: bool = False
-	PotionPercent: bool = False
-	EventCode: bool = False
-	EventInfo: bool = False
-	dwEvnetItem: bool = False
-	szModelName2: bool = False
-	ExtraGold: bool = False
-	DamageStunPers: bool = False
-	DamageStunPers2: bool = False
-	Move_Speed: bool = False
-	lpDialogMessage: bool = False
-	szNextFile: bool = False
+class PTServerFallItem:
+	kind: str = "item"
+	percent: int = 0
+	codes: list[str] = field(default_factory=list)
+	gold_min: int = 0
+	gold_max: int = 0
 
-	Small: bool = False
-	Medium: bool = False
-	Big: bool = False
-	Bigger: bool = False
-	No: bool = False
-	good: bool = False
-	evil: bool = False
-	No: bool = False
-	Day: bool = False
-	Night: bool = False
-	State_True: bool = False
-	State_False: bool = False
-	Normal: bool = False
-	Daemon: bool = False
-	Undead: bool = False
-	Mutant: bool = False
-	Mechanic: bool = False
-	Iron: bool = False
-	Normal: bool = False
-	Undead: bool = False
-	Undead2: bool = False
+
+@dataclass
+class PTServerMonster:
+	name: str | None = None
+	name_en: str | None = None
+	active: bool = False
+	model: str | None = None
+	model_alt: str | None = None
+	event_model: bool = False
+	model_scale: float = 1
+	level: int = 0
+	is_boss: bool = False
+	rank: int = 0
+	size: str | None = None
+	size_level: int = -1
+	sound: str | None = None
+	move_speed: float = 0
+	move_type: int | None = None
+	move_range: float = 0
+	attack_damage: list[int] = field(default_factory=list)
+	attack_speed: float = 0
+	shooting_range: int = 0
+	attack_rating: int = 0
+	defence: int = 0
+	absorption: int = 0
+	chance_block: int = 0
+	life: int = 0
+	resistances: dict[str, int] = field(default_factory=dict)
+	sight: int = 0
+	arrow_position: list[int] = field(default_factory=list)
+	skill_damage: list[int] = field(default_factory=list)
+	skill_distance: int = 0
+	skill_range: int = 0
+	skill_rating: int = 0
+	skill_curse: int = 0
+	active_hour: int = 0
+	generate_group: list[int] = field(default_factory=list)
+	iq: int = 0
+	class_code: int = 0
+	damage_stun_percent: int | None = None
+	nature: str | None = None
+	event_code: int = 0
+	event_info: int = 0
+	event_item: str | None = None
+	special_attack_percent: int = 0
+	brood: str | None = None
+	undead: bool = False
+	exp: int = 0
+	potion_count: int | None = None
+	potion_percent: int | None = None
+	all_see_item: bool = False
+	fall_item_max: int | None = None
+	fall_items: list[PTServerFallItem] = field(default_factory=list)
+	fall_items_plus: list[PTServerFallItem] = field(default_factory=list)
+	sell_weapons: list[str] = field(default_factory=list)
+	sell_defences: list[str] = field(default_factory=list)
+	sell_misc: list[str] = field(default_factory=list)
+	dialogue: list[str] = field(default_factory=list)
+	next_file: str | None = None
 
 
 """SERVER ITEMS"""
 
 
 @dataclass
+class PTServerItemRange:
+	min: float = 0
+	max: float = 0
+
+
+@dataclass
 class PTServerItem:
-	NameEnglish: bool = False
-	ItemName: bool = False
-	Code: bool = False
-	Integrity: bool = False
-	Weight: bool = False
-	Price: bool = False
-	sResistance_sITEMINFO_BIONIC: bool = False
-	sResistance_sITEMINFO_FIRE: bool = False
-	sResistance_sITEMINFO_ICE: bool = False
-	sResistance_sITEMINFO_LIGHTING: bool = False
-	sResistance_sITEMINFO_POISON: bool = False
-	sDamage: bool = False
-	sAttack_Rating: bool = False
-	sDefence: bool = False
-	fAbsorb: bool = False
-	fBlock_Rating: bool = False
-	Attack_Speed: bool = False
-	Critical_Hit: bool = False
-	Shooting_Range: bool = False
-	Potion_Space: bool = False
-	fLife_Regen: bool = False
-	fLife_Regen2: bool = False
-	fMana_Regen: bool = False
-	fMana_Regen2: bool = False
-	fStamina_Regen: bool = False
-	fStamina_Regen2: bool = False
-	Increase_Life: bool = False
-	Increase_Life2: bool = False
-	Increase_Mana: bool = False
-	Increase_Mana2: bool = False
-	Increase_Stamina: bool = False
-	Increase_Stamina2: bool = False
-	Level: bool = False
-	Strength: bool = False
-	Spirit: bool = False
-	Talent: bool = False
-	Agility_Dexterity: bool = False
-	Health: bool = False
-	DispEffect: bool = False
-	sResistance_sITEMINFO_EARTH: bool = False
-	sResistance_sITEMINFO_WATER: bool = False
-	sResistance_sITEMINFO_WIND: bool = False
-	TransfereSpeed: bool = False
-	UniqueItem: bool = False
-	dwJobBitCode_Random: bool = False
-	JobCodeMask: bool = False
-	fSpecial_Absorb: bool = False
-	sSpecial_Defence: bool = False
-	JobItem_Per_Life_Regen: bool = False
-	JobItem_Per_Life_Regen2: bool = False
-	fSpecial_Mana_Regen: bool = False
-	fSpecial_Mana_Regen2: bool = False
-	JobItem_Per_Stamina_Regen: bool = False
-	JobItem_Per_Stamina_Regen2: bool = False
-	fSpecial_fSpeed: bool = False
-	JobItem_Add_Attack_Speed: bool = False
-	JobItem_Add_fBlock_Rating: bool = False
-	Lev_Attack_Rating: bool = False
-	JobItem_Lev_Damage: bool = False
-	JobItem_Add_Critical_Hit: bool = False
-	fSpecial_Magic_Mastery: bool = False
-	JobItem_Add_Shooting_Range: bool = False
-	JobItem_Lev_Mana: bool = False
-	JobItem_Lev_Mana2: bool = False
-	JobItem_Lev_Life: bool = False
-	JobItem_Lev_Life2: bool = False
-	fMagic_Mastery: bool = False
-	Stamina: bool = False
-	Stamina2: bool = False
-	Mana: bool = False
-	Mana2: bool = False
-	Life: bool = False
-	Life2: bool = False
-	EffectColor: bool = False
-	sGenDay: bool = False
-	szNextFile: bool = False
+	name: str | None = None
+	name_en: str | None = None
+	code: str | None = None
+	durability: list[int] = field(default_factory=list)
+	weight: int = 0
+	price: int = 0
+	resistances: dict[str, list[int]] = field(default_factory=dict)
+	damage: list[int] = field(default_factory=list)
+	shooting_range: int = 0
+	attack_speed: int = 0
+	attack_rating: list[int] = field(default_factory=list)
+	critical_hit: int = 0
+	absorb: list[float] = field(default_factory=list)
+	defence: list[int] = field(default_factory=list)
+	block_rating: list[float] = field(default_factory=list)
+	speed: list[float] = field(default_factory=list)
+	potion_space: int = 0
+	magic_mastery: float | None = None
+	mana_regen: list[float] = field(default_factory=list)
+	life_regen: list[float] = field(default_factory=list)
+	stamina_regen: list[float] = field(default_factory=list)
+	increase_mana: list[int] = field(default_factory=list)
+	increase_life: list[int] = field(default_factory=list)
+	increase_stamina: list[int] = field(default_factory=list)
+	level: int = 0
+	strength: int = 0
+	spirit: int = 0
+	talent: int = 0
+	dexterity: int = 0
+	health: int = 0
+	stamina: list[int] = field(default_factory=list)
+	mana: list[int] = field(default_factory=list)
+	life: list[int] = field(default_factory=list)
+	unique: bool = False
+	effect_color: list[int] = field(default_factory=list)
+	disp_effect: int = 0
+	job_code_mask: str | None = None
+	job_code_random: list[str] = field(default_factory=list)
+	special_absorb: list[float] = field(default_factory=list)
+	special_defence: list[int] = field(default_factory=list)
+	special_speed: list[float] = field(default_factory=list)
+	special_magic_mastery: list[float] = field(default_factory=list)
+	special_mana_regen: list[float] = field(default_factory=list)
+	per_life_regen: float | None = None
+	per_stamina_regen: float | None = None
+	job_add_block_rating: float | None = None
+	job_add_attack_speed: int | None = None
+	job_add_critical_hit: int | None = None
+	job_add_shooting_range: int | None = None
+	job_lev_mana: int | None = None
+	job_lev_life: int | None = None
+	lev_attack_rating: list[int] = field(default_factory=list)
+	job_lev_damage: list[int] = field(default_factory=list)
+	gen_day: int | None = None
+	next_file: str | None = None

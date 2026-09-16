@@ -68,3 +68,6 @@ if __name__ == "__main__":
 		decode_smd(buckets[".smd"], buckets[".inx"], args)
 	if args.server:
 		decode_stages(buckets[".spc"], buckets[".spm"], buckets[".spp"], args)
+		decode_inf(buckets[".inf"], args)
+		decode_npc(buckets[".npc"], args)
+		decode_txt(buckets[".txt"], args)

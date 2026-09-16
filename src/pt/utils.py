@@ -56,6 +56,36 @@ def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:
 	return root, ext
 
 
+def split_config_tokens(line: bytes) -> list[bytes]:
+	"""
+	Split a config line into tokens the way the engine's GetWord/GetString pair
+	does (fileread.cpp:81, smRead3d.cpp:4598): a token is a whitespace delimited
+	word, unless it opens a double quote in which case the token runs to the
+	closing quote and the quotes are stripped (quoted values keep inner spaces).
+	Line terminators never become part of a token.
+	"""
+	tokens = []
+	i, n = 0, len(line)
+	while i < n:
+		while i < n and line[i:i+1] in (b" ", b"\t", b"\r", b"\n"):
+			i += 1
+		if i >= n:
+			break
+		if line[i:i+1] == b'"':
+			i += 1
+			start = i
+			while i < n and line[i:i+1] not in (b'"', b"\r", b"\n"):
+				i += 1
+			tokens.append(line[start:i])
+			i += 1
+		else:
+			start = i
+			while i < n and line[i:i+1] not in (b" ", b"\t", b"\r", b"\n"):
+				i += 1
+			tokens.append(line[start:i])
+	return tokens
+
+
 """QUATERNIONS / ANGLES"""
 
 

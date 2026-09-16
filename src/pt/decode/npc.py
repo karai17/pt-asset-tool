@@ -1,9 +1,6 @@
 from pt.pdef import *
-from pt.utils import decode_string
-from pt.const import (
-	CONFIG_PATTERN,
-	NPC
-)
+from pt.utils import decode_string, split_config_tokens
+from pt.const import NPC
 
 
 def decode(path: str) -> PTServerCharacter:
@@ -13,7 +10,7 @@ def decode(path: str) -> PTServerCharacter:
 	NPC files are parsed by the same engine line parser used for INF files:
 	fileread.cpp:4279 smCharDecode (the client's .npc loader is
 	playmain.cpp:1452; GetWord/GetString at fileread.cpp:81/:46 do the
-	tokenizing that CONFIG_PATTERN approximates). Only *-prefixed lines are
+	tokenizing that split_config_tokens reproduces). Only *-prefixed lines are
 	commands; // lines are comments.
 	"""
 	character = PTServerCharacter()
@@ -24,9 +21,14 @@ def decode(path: str) -> PTServerCharacter:
 			if line[0:1] != b"*":
 				continue
 
-			matches = CONFIG_PATTERN.findall(line)
-			segments = [m.strip(b'"') for m in matches]
+			segments = split_config_tokens(line)
 			key = segments.pop(0)
+
+			# *퀘스트 이벤트 carries a stray space inside the key in
+			# snowboard.NPC; the engine's exact lstrcmp would also miss it
+			if key == NPC.WingQuestNpc2_Typo and segments and segments[0] == b"\xc0\xcc\xba\xa5\xc6\xae":
+				key = NPC.WingQuestNpc2
+				segments.pop(0)
 
 			match key:
 				# *속성: NPC marks an NPC record (smCharDecode also accepts 적,
@@ -34,14 +36,14 @@ def decode(path: str) -> PTServerCharacter:
 				case NPC.State:
 					character.active = True if segments[0] == NPC._ACTIVE else False
 				case NPC.szModelName:
-					character.model = segments[0]
+					character.model = decode_string(segments[0])
 				case NPC.Level:
 					character.level = int(segments[0])
 				case NPC.szName:
 					character.name = decode_string(segments[0])
 				case NPC.Name:
-					character.name_en = segments[0]
-				case NPC.lpDialogMessage:
+					character.name_en = decode_string(segments[0])
+				case NPC.lpDialogMessage | NPC.DialogTypo:
 					character.dialogue.append(decode_string(segments[0]))
 				case NPC.SellAttackItem:
 					# *무기판매: item names resolved against the item table
@@ -60,9 +62,22 @@ def decode(path: str) -> PTServerCharacter:
 					# *직업전환; no argument = rank 0 (smCharDecode also maps the
 					# rank keywords *두목 / *계급 to wPlayClass[0],
 					# fileread.cpp:126278-126300)
-					character.job_master = 0 if len(segments) == 0 else segments[0]
+					character.job_master = int(segments[0]) if segments else 0
 				case NPC.EventNPC:
-					character.event = int(segments[0])
+					character.event = int(segments[0]) if segments else 0
+				case NPC.EventCode:
+					character.event_code = int(segments[0])
+				case NPC.EventInfo:
+					character.event_info = int(segments[0])
+				case NPC.Rank:
+					# *계급 / *두목 map to wPlayClass[0]
+					character.rank = int(segments[0])
+				case NPC.SizeLevel:
+					character.size = decode_string(segments[0])
+				case NPC.Size:
+					character.model_scale = float(segments[0])
+				case NPC.SoundEffect:
+					character.sound = decode_string(segments[0])
 				case NPC.WareHouseMaster:
 					character.warehouse_master = True
 				case NPC.ItemMix:
@@ -87,24 +102,28 @@ def decode(path: str) -> PTServerCharacter:
 					character.clan_master = True
 				case NPC.GiftExpress:
 					character.GiftExpress = True
-				case NPC.WingQuestNpc1:
-					character.WingQuestNpc1 = int(segments[0])
-				case NPC.WingQuestNpc2:
-					character.WingQuestNpc2 = int(segments[0])
+				case NPC.WingQuestNpc1 | NPC.WingQuestNpc2 | NPC.WingQuestNpc2_Typo:
+					# *윙퀘스트 = 1 / *퀘스트이벤트 = 2 when the optional number
+					# is omitted (fileread.cpp:5251-5268)
+					value = int(segments[0]) if segments else 0
+					if key == NPC.WingQuestNpc1:
+						character.WingQuestNpc1 = value
+					else:
+						character.WingQuestNpc2 = value
 				case NPC.StarPointNpc:
-					character.StarPointNpc = int(segments[0])
+					character.StarPointNpc = int(segments[0]) if segments else 0
 				case NPC.GiveMoneyNpc:
 					character.GiveMoneyNpc = True
 				case NPC.TelePortNpc:
-					character.teleport_master = int(segments[0])
+					character.teleport_master = int(segments[0]) if segments else 0
 				case NPC.BlessCastleNPC:
-					character.BlessCastleNPC = int(segments[0])
+					character.BlessCastleNPC = int(segments[0]) if segments else 0
 				case NPC.PollingNpc:
-					character.PollingNpc = int(segments[0])
+					character.PollingNpc = int(segments[0]) if segments else 0
 				case NPC.szMediaPlayNPC_Title:
-					character.media_title = segments[0]
+					character.media_title = decode_string(segments[0])
 				case NPC.szMediaPlayNPC_Path:
-					character.media_path = segments[0]
+					character.media_path = decode_string(segments[0])
 				case NPC.OpenCount:
 					character.find_word = int(segments[0])
 					character.exit_number = int(segments[1])
@@ -112,7 +131,7 @@ def decode(path: str) -> PTServerCharacter:
 					character.quest_code = int(segments[0])
 					character.quest_param = int(segments[1])
 				case NPC.szNextFile:
-					character.zhoon_path = segments[0]
+					character.zhoon_path = decode_string(segments[0])
 				case _:
 					print(f"Unknown key: {key}")
 

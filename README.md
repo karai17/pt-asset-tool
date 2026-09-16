@@ -46,7 +46,15 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 * Decode SPM monster spawn configuration
 * Decode SPP spawn point files
 * Decode SPC NPC spawn point files
+* Decode INF monster configurations
+* Decode NPC npc configurations
+* Decode TXT item configurations
 * Encode spawn data as JSON
+* Encode monsters as JSON (each INF -> sibling .json)
+* Encode npcs as JSON (each .npc -> sibling .json)
+* Encode items as JSON (each TXT -> sibling .json)
+* Format reference: `docs/server-spawn-formats.md` (SPC/SPM/SPP),
+  `docs/inf-format.md` (INF), `docs/server-npc-txt-formats.md` (NPC/TXT)
 
 ## Work in Progress
 
@@ -66,14 +74,16 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 
 ### Server
 
-* Decode INF monster configurations (bin/Server/GameServer/Monster)
-* Decode NPC npc configurations (bin/Server/GameServer/NPC)
-* Decode TXT item configurations (bin/Server/GameServer/OpenItem)
-* Encode monsters as JSON
-* Encode npcs as JSON
-* Encode items as JSON
 * get list of monster names (korean, english) from inf files
+	* `MONSTER_NAMES` in `const.py` covers the SPM spawn-table names; INF
+	`*이름`/`*Name` pairs (388 distinct) are decoded but the korean key /
+	english value table is not cross-referenced yet - 203 INF names have no
+	entry in `MONSTER_NAMES`
 	* maybe we need a monster data structure that has all data from inf, srm, etc. should have 3 names: key (raw bytes), name (english), name_k (korean re-encoding of key)
+* zhoon name files (`*연결파일` targets, `name\*.zhoon`) are parsed but not
+	decoded - they carry the localized `*J_NAME`/`*A_NAME`/`*_CHAT` variants
+* `**특화` / `**특화랜덤` job names in TXT files are stored raw; resolving
+	them to `JOB_CODE_*` bits needs the `JobDataBase` table (e_JobCode.h)
 
 ## File Structures
 

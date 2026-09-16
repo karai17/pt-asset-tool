@@ -16,6 +16,108 @@ OBJECT_HEAD_OLD = int.from_bytes(b"\x41\x42\x43\x44")
 CONFIG_PATTERN = re.compile(rb'"[^"]*"|\S+')
 
 
+# Resolvable INF/TXT value vocabularies (smCharDecode, fileread.cpp:4279)
+
+MONSTER_STATE_TRUE = b"\xc0\xfb"
+MONSTER_STATE_FALSE = ""
+
+MONSTER_NATURE_GOOD = b"good"
+MONSTER_NATURE_EVIL = b"evil"
+MONSTER_NATURE_NEUTRAL = ""
+
+MONSTER_BROODS = {
+	b"\xbe\xf0\xb5\xa5\xb5\xe5": "undead",
+	b"\xb9\xc2\xc5\xcf\xc6\xae": "mutant",
+	b"\xb5\xf0\xb8\xd5": "demon",
+	b"\xb8\xde\xc4\xab\xb4\xd0": "mechanic"
+}
+MONSTER_BROOD_UNDEAD = b"\xbe\xf0\xb5\xa5\xb5\xe5"
+MONSTER_BROOD_YES = [b"\xc0\xaf", b"\xc0\xd6\xc0\xbd"]
+
+MONSTER_ACTIVE_DAY = b"\xb3\xb7"
+MONSTER_ACTIVE_NIGHT = b"\xb9\xe3"
+
+MONSTER_DROP_NONE = b"\xbe\xf8\xc0\xbd"
+MONSTER_DROP_GOLD = b"\xb5\xb7"
+
+
+# Character sound name table from smCharDecode (fileread.cpp:4023-4107); names
+# map to snCHAR_SOUND_* codes in effectsnd.h but only the table name is stored
+# in the INF data so the name itself is kept here. Aliases collapse to their
+# first table entry (ARMADIL -> ARMA, GOLEM -> STONEGIANT, ...).
+CHAR_SOUNDS = [
+	"CYCLOPS", "HOBGOBLIN", "IMP", "MINIG", "PLANT", "SKELETON", "ZOMBI", "OBIT",
+	"HOPT", "BARGON", "LEECH", "MUSHROOM", "ARMA", "ARMADIL", "SCORPION",
+	"HEADCUTTER", "SANDLEM", "WEB", "HOPYKING", "CRIP", "BUMA", "DECOY",
+	"DORAL", "FIGON", "GOLEM", "GREVEN", "ILLUSIONKNIGHT", "SKELETONRANGE",
+	"SKELETONMELEE", "WOLVERLIN", "RABIE", "MUDY", "SEN", "EGAN", "BEEDOG",
+	"MUTANTPLANT", "MUTANTRABIE", "MUTANTTREE", "AVELISK", "NAZ", "MUMMY",
+	"HULK", "HUNGKY", "SUCCUBUS", "DAWLIN", "SHADOW", "BERSERKER", "IRONGUARD",
+	"FURY", "SLIVER", "RATOO", "STYGIANLORD", "OMICRON", "D-MACHINE", "METRON",
+	"MRGHOST", "VAMPIRICBAT", "MIREKEEPER", "MUFFIN", "SOLIDSNAIL", "BEEVIL",
+	"NIGHTMARE", "STONEGOLEM", "THORNCRAWLER", "HEAVYGOBLIN", "EVILPLANT",
+	"HAUNTINGPLANT", "DARKKNIGHT", "GUARDIAN-SAINT", "CHAINGOLEM", "DEADZONE",
+	"GROTESQUE", "HYPERMACHINE", "IRONFIST", "MORGON", "MOUNTAIN", "RAMPAGE",
+	"RUNICGUARDIAN", "SADNESS", "TOWERGOLEM", "VAMPIRICBEE", "VAMPIRICMACHINE",
+	"AVELINARCHER", "AVELINQUEEN", "BABEL", "MYSTIC", "ICEGOBLIN", "COLDEYE",
+	"FROZEN", "ICEGOLEM", "FROST", "CHAOSCARA", "DEATHKNIGHT", "GREATE_GREVEN",
+	"LIZARDFOLK", "M_LORD", "SPIDER", "STINGRAY", "STRIDER", "OMU",
+	"TURTLECANNON", "DEVILBIRD", "BLIZZARDGIANT", "KELVEZU", "DARKPHALANX",
+	"BLOODYKNIGHT", "CHIMERA", "FIREWORM", "HELLHOUND", "DARKGUARD", "DARKMAGE",
+	"MONMOKOVA", "MONTEMPLEGUARD", "MONSETO", "MONKINGSPIDER", "D_KN",
+	"D_MAGI", "D_ATAL", "D_FI", "D_AR", "D_MECA", "D_PA", "D_PR", "DEADHOPT",
+	"DEADKINGHOPY", "GORGON", "HOBOGOLEM", "NIKEN", "MIMIC", "KINGBAT",
+	"GOBLINSHAMAN", "HEST", "RUCA", "NAZSENIOR", "IGOLATION", "KAKOA", "SPRIN",
+	"UNDEADMAPLE", "XETAN", "BEBECHICK", "PAPACHICK", "MORIF", "MOLLYWOLF",
+	"SKILLMASTER", "MAGE", "WORLDCUP", "WATERMELON", "WOLVERIN", "METALGOLEM",
+	"FIREELEMENTAL", "CASTLEDOOR", "T_CRYSTAL_R", "T_CRYSTAL_G", "T_CRYSTAL_B",
+	"T_CRYSTAL_N", "TOWER-B", "SOLDIER_A", "SOLDIER_B", "SOLDIER_C",
+	"S_AVELIN", "S_BAGON", "S_BEEDOG", "S_BEEVIL", "S_BERSERKER", "S_BUMA",
+	"S_COKRIS", "S_COLDEYE", "S_CRYPT", "S_CYCLOPS", "S_DEADZONE", "S_DECOY",
+	"S_D-Machine", "S_EVILSNAIL", "S_GREVEN", "S_GROTESQUE", "S_ICEGOBLIN",
+	"S_ICEGOLEM", "S_INCUBUS", "S_KINGHOPY", "S_LEECH", "S_LIZARDFOLK",
+	"S_MEPHIT", "S_METRON", "S_MUFFIN", "S_MUMMY", "S_NAZ", "S_OMEGA",
+	"S_RAMPAGE", "S_SADNESS", "S_SLAUGHTER", "S_SLAYON", "S_SLIVER", "S_TITAN",
+	"S_TOWERGOLEM", "S_TYPHOON", "S_VAMPIRICBAT", "S_WITCH", "S_ZOMBIE"
+]
+
+CHAR_SOUNDS_LOOKUP = {name.casefold(): name for name in CHAR_SOUNDS}
+
+
+# Size level names from szCharSizeCodeName (fileread.cpp:4275); the engine
+# stores the table index (-1 when unmatched) in smCHAR_INFO.SizeLevel.
+CHAR_SIZE_NAMES = [b"\xbc\xd2\xc7\xfc", b"\xc1\xdf\xc7\xfc", b"\xc1\xdf\xb4\xeb\xc7\xfc", b"\xb4\xeb\xc7\xfc"]
+
+
+# Item category bases from sinItem.h. A five character category ("WP123")
+# encodes base sinWP1 + the last two digits << 8; smCharDecode/DecodeItemInfo
+# resolve the categories against the sItem[] table at runtime.
+ITEM_BASE_CODES = {
+	"WA1": 0x01010000, "WC1": 0x01020000, "WH1": 0x01030000, "WM1": 0x01040000,
+	"WP1": 0x01050000, "WS1": 0x01060000, "WS2": 0x01070000, "WT1": 0x01080000,
+	"DA1": 0x02010000, "DB1": 0x02020000, "DG1": 0x02030000, "DS1": 0x02040000,
+	"DA2": 0x02050000,
+	"OA1": 0x03010000, "OA2": 0x03020000, "OM1": 0x03030000, "OR1": 0x03040000,
+	"OR2": 0x03050000, "OS1": 0x02350000, "FO1": 0x03060000, "SE1": 0x03070000,
+	"PR1": 0x03080000, "PR2": 0x03090000, "PR3": 0x03100000, "PR4": 0x03110000,
+	"PM1": 0x04010000, "PL1": 0x04020000, "PS1": 0x04030000,
+	"GG1": 0x05010000, "BS1": 0x05020000,
+	"EC1": 0x06010000,
+	"QT1": 0x07010000,
+	"SP1": 0x08010000, "GP1": 0x08020000, "QW1": 0x08030000
+}
+
+
+def item_code(category: str) -> int | None:
+	category = category.upper()
+	if len(category) != 5 or not category[2:].isdigit():
+		return None
+	base = ITEM_BASE_CODES.get(category[:3], ITEM_BASE_CODES.get(category[:2] + "1"))
+	if base is None:
+		return None
+	return base | int(category[3:]) << 8
+
+
 # Spawn Monster
 SPM = types.SimpleNamespace()
 SPM.MAX_MONSTERS           = b"*\xc3\xd6\xb4\xeb\xb5\xbf\xbd\xc3\xc3\xe2\xc7\xf6\xbc\xf6"
@@ -34,7 +136,8 @@ NPC.szModelName          = b"*\xb8\xf0\xbe\xe7\xc6\xc4\xc0\xcf"
 NPC.Level                = b"*\xb7\xb9\xba\xa7"
 NPC.szName               = b"*\xc0\xcc\xb8\xa7"
 NPC.Name                 = b"*Name"
-NPC.lpDialogMessage      = b"*\xb4\xeb\xc8"
+NPC.lpDialogMessage      = b"*\xb4\xeb\xc8\xad"
+NPC.DialogTypo           = b"*\xb4\xf4\xc8\xad" # *댜화 typo present in shipped data
 NPC.SellAttackItem       = b"*\xb9\xab\xb1\xe2\xc6\xc7\xb8\xc5"
 NPC.SellDefenceItem      = b"*\xb9\xe6\xbe\xee\xb1\xb8\xc6\xc7\xb8\xc5"
 NPC.SellEtcItemCount     = b"*\xc0\xe2\xc8\xad\xc6\xc7\xb8\xc5"
@@ -55,6 +158,7 @@ NPC.ClanNPC              = b"*\xc5\xac\xb7\xa3\xb1\xe2\xb4\xc9"
 NPC.GiftExpress          = b"*\xb0\xe6\xc7\xb0\xb9\xe8\xb4\xde"
 NPC.WingQuestNpc1        = b"*\xc0\xae\xc4\xf9\xbd\xba\xc6\xae"
 NPC.WingQuestNpc2        = b"*\xc4\xf9\xbd\xba\xc6\xae\xc0\xcc\xba\xa5\xc6\xae"
+NPC.WingQuestNpc2_Typo   = b"*\xc4\xf9\xbd\xba\xc6\xae" # *퀘스트 이벤트 with a space in snowboard.NPC
 NPC.StarPointNpc         = b"*\xba\xb0\xc6\xf7\xc0\xce\xc6\xae\xc0\xfb\xb8\xb3"
 NPC.GiveMoneyNpc         = b"*\xb1\xe2\xba\xce\xc7\xd4"
 NPC.TelePortNpc          = b"*\xc5\xda\xb7\xb9\xc6\xf7\xc6\xae"
@@ -65,6 +169,12 @@ NPC.szMediaPlayNPC_Path  = b"*\xb5\xbf\xbf\xb5\xbb\xf3\xb0\xe6\xb7\xce"
 NPC.OpenCount            = b"*\xc3\xe2\xc7\xf6\xb0\xa3\xb0\xdd"
 NPC.QuestCode            = b"*\xc4\xf9\xbd\xba\xc6\xae\xc4\xda\xb5\xe5"
 NPC.szNextFile           = b"*\xbf\xac\xb0\xe1\xc6\xc4\xc0\xcf"
+NPC.EventCode            = b"*\xc0\xcc\xba\xa5\xc6\xae\xc4\xda\xb5\xe5"
+NPC.EventInfo            = b"*\xc0\xcc\xba\xa5\xc6\xae\xc1\xa4\xba\xb8"
+NPC.Rank                 = b"*\xb0\xe8\xb1\xde"
+NPC.SizeLevel            = b"*\xc5\xa9\xb1\xe2"
+NPC.Size                 = b"*\xb8\xf0\xb5\xa8\xc5\xa9\xb1\xe2"
+NPC.SoundEffect          = b"*\xc8\xbf\xb0\xfa\xc0\xbd"
 
 
 
@@ -110,10 +220,12 @@ INF.Resistance_sITEMINFO_POISON   = b"*\xb5\xb6" # Resistance[sITEMINFO_POISON] 
 INF.Resistance_sITEMINFO_WATER    = b"*\xb9\xb0" # Resistance[sITEMINFO_WATER] short integer 1 value
 INF.Resistance_sITEMINFO_WIND     = b"*\xb9\xd9\xb6\xf7" # Resistance[sITEMINFO_WIND] short integer 1 value
 INF.Resistance_sITEMINFO_EARTH    = b"*\xc1\xf6\xb5\xbf\xb7\xc2" # Resistance[sITEMINFO_EARTH] short integer 1 value
+INF.Resistance_sITEMINFO_MAGIC    = b"*\xb8\xc5\xc1\xf7" # *매직 magic resistance; not in smCharDecode, monsters carry it
 INF.Type                          = b"*\xb8\xf3\xbd\xba\xc5\xcd\xc1\xbe\xc1\xb7" # Brood StringValue no "String" Possible Values "\xbe\xf0\xb5\xa5\xb5\xe5" = smCHAR_MONSTER_UNDEAD,                    "\xb9\xc2\xc5\xcf\xc6\xae" = smCHAR_MONSTER_MUTANT, "\xb5\xf0\xb8\xd5" = smCHAR_MONSTER_DEMON, "\xb8\xde\xc4\xab\xb4\xd0" = smCHAR_MONSTER_MECHANIC
 INF.IsUndead                      = b"*\xbe\xf0\xb5\xa5\xb5\xe5" # Undead(Brood) StringValue no "String" ""                                                 = Neutral "\xc0\xaf" or "\xc0\xd6\xc0\xbd" = Undead
 INF.MoveRange                     = b"*\xc0\xcc\xb5\xbf\xb9\xfc\xc0\xa7" #  MoveRange integer 1 Value
 INF.MoveType                      = b"*\xc0\xcc\xb5\xbf\xc5\xb8\xc0\xd4" #  Not supported
+INF.MoveSpeed                     = b"*\xc0\xcc\xb5\xbf\xbc\xd3\xb5\xb5" # *이동속도; synonym key used by newer INFs for *이동력
 INF.SoundEffect                   = b"*\xc8\xbf\xb0\xfa\xc0\xbd" # SoundCode StringValue no "String"
 INF.SoundEffect2                  = b"*\xbc\xd2\xb8\xae" # SoundCode StringValue no "String"
 INF.Exp                           = b"*\xb0\xe6\xc7\xe8\xc4\xa1" #  Exp integer 1 Value
@@ -187,6 +299,7 @@ INF.Undead2 = b"\xc0\xd6\xc0\xbd"
 # Item Definition
 TXT = types.SimpleNamespace()
 TXT.NameEnglish                    = b"*Name" # Not supported/used in Server
+TXT.NameUpper                      = b"*NAME" # *NAME variant used by some armor files (engine: no *NAME case)
 TXT.ItemName                       = b"*\xc0\xcc\xb8\xa7" # \'ItemName StringValue
 TXT.Code                           = b"*\xc4\xda\xb5\xe5" # ItemCode StringValue no "String"
 TXT.Integrity                      = b"*\xb3\xbb\xb1\xb8\xb7\xc2" # sDurability Integer 2 Values
@@ -253,6 +366,8 @@ TXT.JobItem_Lev_Mana2              = b"**\xb1\xe2\xb7\xc2\xc3\xdf\xb0\xa1" # Job
 TXT.JobItem_Lev_Life               = b"**\xb6\xf3\xc0\xcc\xc7\xc1\xc3\xdf\xb0\xa1" # JobItem_Lev_Life Integer 1 value (will overwite JobItem_Lev_Life2)
 TXT.JobItem_Lev_Life2              = b"**\xbb\xfd\xb8\xed\xb7\xc2\xc3\xdf\xb0\xa1" # JobItem_Lev_Life2 Integer 1 value (will overwite JobItem_Lev_Life)
 TXT.fMagic_Mastery                 = b"*\xb8\xb6\xb9\xfd\xbc\xf7\xb7\xc3\xb5\xb5" # fMagic_Mastery float 1 Value
+TXT.fMagic_Mastery2                = b"*\xb8\xb6\xb9\xfd\xb1\xe2\xbc\xfa\xbc\xf7\xb7\xc3\xb5\xb5" # *마법기술숙련도 synonym used by shipped files
+TXT.fMagic_Mastery3                = b"*\xb1\xe2\xbc\xfa\xbc\xf7\xb7\xc3\xb5\xb5" # *기술숙련도 synonym used by shipped files
 TXT.Stamina                        = b"*\xb1\xd9\xb7\xc2\xbb\xf3\xbd\xc2" # Stamina Integer 2 values
 TXT.Stamina2                       = b"*\xbd\xba\xc5\xd7\xb9\xcc\xb3\xca\xbb\xf3\xbd\xc2" # Stamina Integer 2 values
 TXT.Mana                           = b"*\xb1\xe2\xb7\xc2\xbb\xf3\xbd\xc2" # Mana Integer 2 values
@@ -261,7 +376,30 @@ TXT.Life                           = b"*\xbb\xfd\xb8\xed\xb7\xc2\xbb\xf3\xbd\xc2
 TXT.Life2                          = b"*\xb6\xf3\xc0\xcc\xc7\xc1\xbb\xf3\xbd\xc2" # Life Integer 2 values
 TXT.EffectColor                    = b"*\xc0\xaf\xb4\xcf\xc5\xa9\xbb\xf6\xbb\xf3" # EffectColor[0-3] EffectBlink[0] Integer 5 Values R, G, B, A, Blink
 TXT.sGenDay                        = b"*\xb9\xdf\xbb\xfd\xc1\xa6\xc7\xd1" # sGenDay Integer 1 value
+TXT.sGenDay2                       = b"*\xc3\xd6\xb4\xeb\xbc\xf6\xb7\xae" # *최대수량 (max quantity) synonym used by shipped files
 TXT.szNextFile                     = b"*\xbf\xac\xb0\xe1\xc6\xc4\xc0\xcf" # szNextFile StringValue
+
+# Alternate romanized name keys (DecodeItemInfo lstrcmpi language cases,
+# fileread.cpp:3362-3425; shipped files use *NAME, smCharDecode has none)
+TXT.C_Name = b"*C_NAME"
+TXT.J_Name = b"*J_NAME"
+TXT.T_Name = b"*T_NAME"
+TXT.E_Name = b"*E_NAME"
+TXT.TH_Name = b"*TH_NAME"
+TXT.V_Name = b"*V_NAME"
+TXT.B_Name = b"*B_NAME"
+TXT.A_Name = b"*A_NAME"
+
+# Alternate romanized dialogue keys (smCharDecode language cases,
+# fileread.cpp:4438-4505; the server zhoon files use them)
+INF.C_Chat = b"*C_CHAT"
+INF.J_Chat = b"*J_CHAT"
+INF.T_Chat = b"*T_CHAT"
+INF.E_Chat = b"*E_CHAT"
+INF.TH_Chat = b"*TH_CHAT"
+INF.V_Chat = b"*V_CHAT"
+INF.B_Chat = b"*B_CHAT"
+INF.A_Chat = b"*A_CHAT"
 
 
 
