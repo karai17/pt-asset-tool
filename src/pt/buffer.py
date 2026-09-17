@@ -36,8 +36,7 @@ class BufferReader:
 		if self.offset + size > len(self.data):
 			raise ValueError("Not enough data left to read.")
 
-		mv = memoryview(self.data)[self.offset:self.offset + size]
-		struct = struct_type.from_buffer(mv)
+		struct = struct_type.from_buffer_copy(self.data, self.offset)
 		self.offset += size
 		return struct
 
@@ -53,10 +52,9 @@ class BufferReader:
 			raise TypeError("Expected a ctype or struct instance.")
 
 		if self.offset + size > len(self.data):
-				raise ValueError("Not enough data left to write.")
+			raise ValueError("Not enough data left to write.")
 
-		mv = memoryview(self.data)[self.offset:self.offset + size]
-		memmove(addressof(c_char.from_buffer(mv)), addressof(struct_data), size)
+		self.data[self.offset:self.offset + size] = bytes(struct_data)
 		self.offset += size
 
 
