@@ -1,5 +1,8 @@
-# directories
+# python
 __pycache__/
+.pytest_cache/
+
+# directories
 .local/
 .venv/
 

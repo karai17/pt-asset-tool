@@ -1005,6 +1005,13 @@ def decode(modelpath: str, motionpath: str | None = None, metadata: PTModelMetad
 		model = decode_actor(sm_modelbuffer, sm_motionbuffer, metadata)
 		model.filename = modelroot + modelext
 		model.animations = metadata.animations if metadata else None
+		model.talk_animations = metadata.talk_animations if metadata else None
+		model.link_file = metadata.link_file if metadata else None
+		model.talk_link_file = metadata.talk_link_file if metadata else None
+		model.talk_motion_file = metadata.talk_motion_file if metadata else None
+		model.sub_model_file = metadata.sub_model_file if metadata else None
+		model.npc_motion_rate_table = metadata.npc_motion_rate_table if metadata else None
+		model.talk_motion_rate_table = metadata.talk_motion_rate_table if metadata else None
 		return model
 
 	print(f"Unknown file signature: {signature}")

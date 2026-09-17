@@ -36,6 +36,11 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 * Patch TGA textures
 * Patch WAV / BGM audio
 * Decode INX model configurations
+	* Per-animation metadata (state, frame ranges, repeat, event frames,
+	  weapon/class/skill restrictions, event key codes, blend rates) and the
+	  facial (talk) animation table, incl. the `*파일연결` chain inheritance
+	  that gives clothing variants the biped animations (see
+	  `docs/inx-motion-metadata.md`)
 * Decode SMD / SMB model files
 * Encode textures as PNG
 * Encode models as JSON (internal data structure)
@@ -69,7 +74,6 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 
 * Texture link list for multi-texture materials (see `docs/texlink.md`)
 * Animated texture paths (anim2:..anim16: material frame lists) - decoded to `PTTextureMap.anim_frames`, exported as a `KHR_texture_transform` uv animation over a per-material frame atlas (see `docs/animated-textures.md`)
-* INX animation information for faces / etc.
 * Encode models as ASE
 
 ### Server

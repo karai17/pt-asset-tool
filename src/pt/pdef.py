@@ -45,12 +45,26 @@ class PTMotionMetadata:
 	end_frame: int = 0
 	repeat: bool = False
 	event_frames: list[float] = field(default_factory=list)
+	motion_frame: int = 0
+	item_codes: list[int] = field(default_factory=list)
+	job_code_bit: int = 0
+	skill_codes: list[int] = field(default_factory=list)
+	map_position: int = 0
+	key_code: str | None = None
+	rate: int = 0
 
 
 @dataclass
 class PTModelMetadata:
 	model_names: list[str] = field(default_factory=list)
 	animations: list[PTMotionMetadata] = field(default_factory=list)
+	talk_animations: list[PTMotionMetadata] = field(default_factory=list)
+	link_file: str | None = None
+	talk_link_file: str | None = None
+	talk_motion_file: str | None = None
+	sub_model_file: str | None = None
+	npc_motion_rate_table: list[int] = field(default_factory=list)
+	talk_motion_rate_table: list[list[int]] = field(default_factory=list)
 
 
 """TEXTURES"""
@@ -270,6 +284,13 @@ class PTActorModel:
 	objects: list[PTActorObject] = field(default_factory=list)
 	bones: list[PTActorBone] = field(default_factory=list)
 	animations: list[PTMotionMetadata] = field(default_factory=list)
+	talk_animations: list[PTMotionMetadata] = field(default_factory=list)
+	link_file: str | None = None
+	talk_link_file: str | None = None
+	talk_motion_file: str | None = None
+	sub_model_file: str | None = None
+	npc_motion_rate_table: list[int] = field(default_factory=list)
+	talk_motion_rate_table: list[list[int]] = field(default_factory=list)
 
 
 """SERVER STAGES"""

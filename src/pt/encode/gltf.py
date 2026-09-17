@@ -408,6 +408,16 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 		gltf_animation.extras["startFrame"] = sframe
 		gltf_animation.extras["endFrame"] = eframe
 
+		if animation:
+			gltf_animation.extras["repeat"] = animation.repeat
+			gltf_animation.extras["motionFrame"] = animation.motion_frame
+			gltf_animation.extras["keyCode"] = animation.key_code
+			gltf_animation.extras["itemCodes"] = animation.item_codes
+			gltf_animation.extras["jobCodeBit"] = animation.job_code_bit
+			gltf_animation.extras["skillCodes"] = animation.skill_codes
+			gltf_animation.extras["mapPosition"] = animation.map_position
+			gltf_animation.extras["rate"] = animation.rate
+
 	process_animation_transform(gltf, transform.rotation, "rotation", gltf_animation, node, track.rotation, animation)
 	process_animation_transform(gltf, transform.position, "translation", gltf_animation, node, track.position, animation)
 	process_animation_transform(gltf, transform.scale, "scale", gltf_animation, node, track.scale, animation)
@@ -1319,6 +1329,24 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				process_animation(gltf, bone.animation, name, bone._id, track, animation)
 
+		# facial (talk) animations live in the same smb frame space as the regular
+		# motions but are separate frame ranges, so they get their own sampler pass
+		# per bone: get_animation_track resolves each key's timestamp against the
+		# talk ranges, keeping times relative to the talk animation's own start.
+		if model.talk_animations:
+			for bone in model.bones:
+				track = PTAnimationTrack()
+				track.position = get_animation_track(gltf, bone.animation.position, "position", True, model.talk_animations)
+				track.rotation = get_animation_track(gltf, bone.animation.rotation, "rotation", True, model.talk_animations)
+				track.scale = get_animation_track(gltf, bone.animation.scale, "scale", True, model.talk_animations)
+
+				for animation in model.talk_animations:
+					name = animation.name
+					if animation.repeat:
+						name += "-loop"
+
+					process_animation(gltf, bone.animation, name, bone._id, track, animation)
+
 	""" TEXTURE ANIMATIONS """
 
 	for anim in anim_atlas:
@@ -1385,5 +1413,29 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			scene.nodes.append(i)
 	gltf.scenes.append(scene)
 
+	""" MODEL METADATA """
+
+	# chain files and rate tables are model level, so they live on the asset
+	# extras; per-animation data (restrictions, key codes, blend rates) is on
+	# each animation's extras.
+	if hasattr(model, "link_file"):
+		extras = {}
+		if model.link_file:
+			extras["linkFile"] = model.link_file
+		if model.talk_link_file:
+			extras["talkLinkFile"] = model.talk_link_file
+		if model.talk_motion_file:
+			extras["talkMotionFile"] = model.talk_motion_file
+		if model.sub_model_file:
+			extras["subModelFile"] = model.sub_model_file
+		if model.npc_motion_rate_table and any(model.npc_motion_rate_table):
+			extras["npcMotionRateTable"] = model.npc_motion_rate_table
+		if model.talk_motion_rate_table and any(any(rates) for rates in model.talk_motion_rate_table):
+			extras["talkMotionRateTable"] = model.talk_motion_rate_table
+		if extras:
+			gltf.asset.extras = extras
+
 	path.parent.mkdir(exist_ok=True, parents=True)
-	gltf.save(path)
+	# pygltflib's save() resets self.asset with a fresh default Asset unless one
+	# is passed, which would drop the asset extras above.
+	gltf.save(path, gltf.asset)

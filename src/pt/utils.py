@@ -56,6 +56,45 @@ def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:
 	return root, ext
 
 
+_dircache: dict[str, list[str]] = {}
+
+
+def _listdir_cached(dirpath: str) -> list[str]:
+	names = _dircache.get(dirpath)
+	if names is None:
+		names = os.listdir(dirpath)
+		_dircache[dirpath] = names
+	return names
+
+
+def resolve_casepath(path: str) -> str:
+	"""
+	Resolve a path case-insensitively, matching Win32 filesystem semantics: the
+	engine resolves every file through FindFirstFile / fopen on FAT/NTFS
+	(smFindFile, smRead3d.cpp:1713), which is case-insensitive and
+	case-preserving. Returns the input path when no on-disk case variant exists
+	so error messages keep the authored name.
+	"""
+	if os.path.exists(path):
+		return path
+	segments = path.split(os.path.sep)
+	resolved = ""
+	if not segments[0]:
+		resolved = os.path.sep
+		segments = segments[1:]
+	for segment in segments:
+		if segment in (".", ".."):
+			resolved = os.path.join(resolved, segment)
+			continue
+		try:
+			names = _listdir_cached(resolved or ".")
+		except OSError:
+			names = []
+		match = next((name for name in names if name.casefold() == segment.casefold()), None)
+		resolved = os.path.join(resolved, match if match else segment)
+	return resolved
+
+
 def split_config_tokens(line: bytes) -> list[bytes]:
 	"""
 	Split a config line into tokens the way the engine's GetWord/GetString pair
