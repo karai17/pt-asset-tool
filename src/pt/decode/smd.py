@@ -43,6 +43,34 @@ def decode_material_name(script_flags, blend_flag):
 	return name
 
 
+# Regenerate MeshState from the authored script flags and transparency,
+# mirroring the assignment sequence in smMATERIAL_GROUP::AddMaterial
+# (smTexture.cpp:880-940). Flag values are sMATS_SCRIPT_* (smRead3d.h:44-77):
+# 0x1 wind, 0x20/0x40/0x80/0x100 wind_z1/wind_z2/wind_x1/wind_x2, 0x200 water,
+# 0x800 pass, 0x1000 notpass, 0x2000 render_latter, 0x8000 ice,
+# 0x10000 orgwater; SMMAT_STAT_CHECK_FACE = 0x1 (smType.h:649). The engine
+# writes the result into the file at export and loads it verbatim, so the
+# stored MeshState stays authoritative; this exists to interpret it.
+def decode_mesh_state(script_state: int, transparency: float) -> int:
+	mesh_state = 1 if transparency == 0 else 0
+
+	if script_state & 0x1: mesh_state = 0
+	if script_state & 0x20: mesh_state = 0
+	if script_state & 0x40: mesh_state = 0
+	if script_state & 0x80: mesh_state = 0
+	if script_state & 0x100: mesh_state = 0
+	if script_state & 0x200: mesh_state = 0
+
+	if script_state & 0x1000: mesh_state = 1
+	elif script_state & 0x800: mesh_state = 0
+
+	if script_state & 0x2000: mesh_state |= 0x2000
+	if script_state & 0x8000: mesh_state |= 0x8000
+	if script_state & 0x10000: mesh_state = 0x10000
+
+	return mesh_state
+
+
 # Rebuild ASE texture map names from the flag bits parsed out of *MAP_NAME
 # strings at import (smRead3d.cpp:367-384: BsStageScript values are D3DTOP_
 # enums, BitmapFormState is the szMapFormScript table index).
@@ -592,67 +620,8 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	material.transparent = True if sm_material.Transparency > 0 else False
 	material.selfillum = True if sm_material.SelfIllum > 0 else False
 	material.two_sided = True if sm_material.TwoSide > 0 else False
-	# MeshState / UseState are built from the material script flags at
-	# import (smTexture.cpp:941-1013 AddMaterial) using sMATS_SCRIPT_*
-	# (smRead3d.h:44-77) and SMMAT_STAT_CHECK_FACE = 0x1
-	# (smType.h:649).
-	material.mesh_flags = sm_material.MeshState # Reference: smTexture.cpp::smMATERIAL_GROUP::AddMaterial (line ~944)
-	material.collide = True if (sm_material.MeshState % 2) == 1 else False
-
-	# FIXME: wrong but convenient (for now)
-	if not material.collide:
-		material.collide = sm_material.MeshState & int.from_bytes(b"\x01\x00\x00") == int.from_bytes(b"\x01\x00\x00") # orgwater flag
-
-	"""
-	if ( smMaterial[MatNum].Transparency==0 )
-		smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
-
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WIND) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX1) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX1;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDX2) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDX2;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ1) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ1;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WINDZ2) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WINDZ2;
-		smMaterial[MatNum].MeshState = 0;
-	}
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_WATER) ) {
-		smMaterial[MatNum].WindMeshBottom = sMATS_SCRIPT_WATER;
-		smMaterial[MatNum].MeshState = 0;
-	}
-
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_NOTPASS) ) {
-		smMaterial[MatNum].MeshState = SMMAT_STAT_CHECK_FACE;
-	} else {
-		if ( (aseMaterial->ScriptState&sMATS_SCRIPT_PASS) ) {
-			smMaterial[MatNum].MeshState = 0;
-		}
-	}
-
-	if ( (aseMaterial->ScriptState&sMATS_SCRIPT_RENDLATTER) ) {
-		smMaterial[MatNum].MeshState |= sMATS_SCRIPT_RENDLATTER;
-	}
-	if( (aseMaterial->ScriptState & sMATS_SCRIPT_CHECK_ICE) )
-		smMaterial[MatNum].MeshState |= sMATS_SCRIPT_CHECK_ICE;
-	if( (aseMaterial->ScriptState & sMATS_SCRIPT_ORG_WATER) )
-		smMaterial[MatNum].MeshState = sMATS_SCRIPT_ORG_WATER;
-	"""
-
+	material.mesh_flags = sm_material.MeshState
+	material.collide = (sm_material.MeshState & 1) == 1
 
 	# If we have textures and paths to those textures, we need to add
 	# texture mapping data.

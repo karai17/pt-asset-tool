@@ -26,6 +26,11 @@ Read on demand:
 - You will find the original C++ code base at `.local/PTClassic` in its original context. This directory is **READ ONLY** and must never be modified.
 - When running the app, `.local/input/*` should be used for the input and `.local/output/*` should be used for the output.
 
+## Control
+
+- Do not make git commits on your own. Only make commits if they are requested of you
+- Never git push, even if requested. Git push should alway sbe an intentional, manual action
+
 ## Goal
 
 The goal of this project is to extract meaningful data from the old, proprietary formats and preserve them accurately in modern, open formats that have better tooling.

@@ -45,6 +45,8 @@ blindly trust (see [Original code quirks and bugs](#original-code-quirks-and-bug
 	- [Model data Ver 0.62](#model-data-ver-062)
 	- [SMB files](#smb-files)
 	- [Material block](#material-block)
+	- [MeshState semantics](#meshstate-semantics)
+		- [Render order](#render-order)
 	- [Stage area partition data](#stage-area-partition-data)
 - [Structures](#structures)
 	- [Primitives](#primitives)
@@ -229,6 +231,66 @@ If `MapOpacity == 1`, the diffuse texture doubles as the opacity map.
 Map names are reconstructed from script/blend flag bits
 (`STAGE_SCRIPT`, `FORM_SCRIPT`, `MTL_FORM_SCRIPT`, `MTL_FORM_BLEND` in
 `src/pt/const.py`; reference: `decode_material_name`, `decode_texture_map_name`).
+
+#### MeshState semantics
+
+`MeshState` bit 0 is `SMMAT_STAT_CHECK_FACE` (`smType.h:649`) — the engine's
+"solid ground / wall" flag. When a character moves, `smSTAGE3D` height and
+movement routines test `MeshState & SMMAT_STAT_CHECK_FACE` on the face's
+material and only settle or block on faces that pass (`smStage3d.cpp:648`,
+`:748`, `:788`, `:1667`, `:1787`, `:1824`). Faces whose material fails the test
+are ghost geometry for movement: the same routines instead probe them for the
+water-surface height when `Transparency > 0.1` or the material carries
+`sMATS_SCRIPT_ORG_WATER` (`smStage3d.cpp:667`). The upper bits are rendering
+attributes riding in the same word: `RENDLATTER` 0x2000 (draw last), `ICE`
+0x8000 (slippery friction, `CheckFaceIceFoot`, `smStage3d.cpp:1405`),
+`ORG_WATER` 0x10000.
+
+At authoring time the max plugin builds the word with a sequential-overwrite
+state machine in `smMATERIAL_GROUP::AddMaterial`
+(`smTexture.cpp:880-940`), reproduced exactly by `decode_mesh_state` in
+`src/pt/decode/smd.py`. The byte-level outcome:
+
+1. Start `MeshState = 1` when `Transparency == 0`, else 0 — the baseline is
+   "opaque materials collide"; the steps below can still clear it.
+2. Any wind or `water:` script flag clears the word to 0.
+3. `notpass:` forces the word back to 1; `pass:` clears it to 0 (later wins).
+4. `render_latter:` ORs in 0x2000, `ice:` ORs in 0x8000.
+5. `orgwater:` overwrites the whole word to 0x10000 (non-collidable water).
+
+The plugin writes the result to the file and the client loads it verbatim,
+never recomputing it, so the stored `MeshState` is authoritative. Decoders do
+not need to re-derive it; `PTModelMaterial.collide` is simply
+`(MeshState & 1) == 1`.
+
+In the shipped data the machine produces only five words — 0x1, 0x0, 0x2000,
+0x2001, 0x8001 — and `ORG_WATER` never occurs (0 of 182,191 in-use materials
+across the entire 3,856-file corpus). `Collidable ⇒ opaque` is exact, but
+opaque does not imply collidable: wind, water and `pass:` scripts clear the
+flag on 3,210 opaque materials (glass, fences, animated props). Transparent
+materials ship with `Transparency` 0.4/0.5, above the 0.1 water-probe
+threshold.
+
+`render_latter:` (0x2000) is common in stage files (6,439 materials; the
+heaviest user is ice1.smd with 68 on one animated-object file) — see
+[Render order](#render-order) for how the engine consumes it.
+
+#### Render order
+
+`RenderD3D` (`smRend3d.cpp:4171-4244`) never sorts triangles. Materials
+register into `RendMatrialList` at first use — opaque at the front,
+transparent (`MapOpacity || Transparency != 0`) at the rear — so blend order
+falls out of registration order, and `RENDLATTER` materials are pulled out of
+both regions into a deferred buffer (max 1024, overflow draws inline) drawn
+after everything else (§8.6 of the PTClassic draft, chapter 3.2). It is a
+painter's-order override for translucent or animated overlays that must draw
+over the world regardless of material registration order (ice panes, water
+tiles, glow). The misspelling is the engine's own (`sMATS_SCRIPT_RENDLATTER`,
+smRead3d.h:61).
+
+For glTF, keep opaque/transparent as the primary sort key (the engine already
+splits its lists that way) and carry `render_latter` in extras; consumers can
+use it to pick `renderPass` / custom sorting.
 
 ### Stage area partition data
 
@@ -424,13 +486,12 @@ skip it without using it.
 | 124 | 4 | `TwoSide` | `uint32` | Non-zero = two-sided |
 | 128 | 4 | `SerialNum` | `uint32` | |
 | 132 | 12 | `Diffuse` | `float[3]` | RGB diffuse color (`smFCOLOR`) |
-| 144 | 4 | `Transparency` | `float` | Non-zero = transparent |
-| 148 | 4 | `SelfIllum` | `float` | Non-zero = self-illuminated |
+| 144 | 4 | `Transparency` | `float` | 0 = opaque; > 0.1 also feeds the water-height path at load |
 | 152 | 4 | `TextureSwap` | `int32` | |
 | 156 | 4 | `MatFrame` | `int32` | Material animation frame |
 | 160 | 4 | `TextureClip` | `int32` | TRUE allows texture clipping |
 | 164 | 4 | `UseState` | `int32` | Script flags (map name bits) |
-| 168 | 4 | `MeshState` | `int32` | Mesh attribute; `SMMAT_STAT_CHECK_FACE=0x1` (collidable floor), `sMATS_SCRIPT_ORG_WATER=0x10000` (water), see `smRead3d.h:44-77` |
+| 168 | 4 | `MeshState` | `int32` | Collision / rendering attributes, see [MeshState semantics](#meshstate-semantics) |
 | 172 | 4 | `WindMeshBottom` | `int32` | Wind script flags (`sMATS_SCRIPT_WINDZ1` etc.) |
 | 176 | 128 | `smAnimTexture_ptr` | `uint32[32]` | Stale pointers |
 | 304 | 4 | `AnimTexCounter` | `uint32` | Animated texture count |
