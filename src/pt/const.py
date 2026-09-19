@@ -5,6 +5,7 @@ import types
 
 VERSION = "0.1.0"
 
+EPSILON = 1e-3
 ANGLE_360 = 4096
 TAU = 2 * math.pi
 SCALE_INCH_TO_METER = 0.0254

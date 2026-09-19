@@ -80,6 +80,7 @@ class PTTextureMap:
 	opacity_path: str | None = None
 	lightmap_name: str | None = None
 	lightmap_path: str | None = None
+	second_has_alpha: bool = False
 	anim_frames: list[str] = field(default_factory=list)
 
 

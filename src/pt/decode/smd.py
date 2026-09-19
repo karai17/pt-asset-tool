@@ -631,6 +631,7 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 
 	if sm_material.TextureCounter > 0 and texpaths_len > 0:
 		texpaths = []
+		texalpha = []
 
 		sm_texpaths = sm_modelbuffer.read(c_uint8 * texpaths_len)
 		sm_texpaths = bytes(sm_texpaths).split(b"\x00")
@@ -639,8 +640,8 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 			if sm_texpaths[j*2][-1] > int.from_bytes(b"\x7F", byteorder="little"): # invalid data
 				break
 
-			texpath = decode_string(sm_texpaths[j*2])
-			texpaths.append(texpath)
+			texpaths.append(decode_string(sm_texpaths[j*2]))
+			texalpha.append(decode_string(sm_texpaths[j*2+1]))
 
 		if len(texpaths) > 0:
 			material.texture_map.diffuse_name = decode_texture_map_name(
@@ -649,10 +650,12 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 			)
 			material.texture_map.diffuse_path = texpaths[0] # diffuse texture is the first texture
 
-		# The second texture stage rides the NextTex chain as TEXCOORD_1 and is
-		# added on top of the diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630):
-		# baked *LightingMap.bmp lightmaps in the *LM_ dungeon stages, or
-		# selfillum maps elsewhere (e.g. actor glow maps)
+		# The second texture stage rides the NextTex chain as TEXCOORD_1. In the
+		# dungeon stages it is a baked *LightingMap.bmp added on top of the
+		# diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630); elsewhere it is a glow
+		# map, or an alpha overlay redrawn in a second pass when the texture
+		# loads with alpha (MapOpacity, smTexture.cpp:3581/4208: a 32bpp TGA, or
+		# a texture with a NameA companion through LoadDibSurfaceAlpha)
 		if len(texpaths) == 2:
 			if "lightingmap" in texpaths[1].casefold():
 				material.texture_map.lightmap_name = decode_texture_map_name(
@@ -661,6 +664,9 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 				)
 				material.texture_map.lightmap_path = texpaths[1]
 			else:
+				material.texture_map.second_has_alpha = (
+					texpaths[1].lower().endswith(".tga") or len(texalpha[1]) > 0
+				)
 				material.texture_map.selfillum_name = decode_texture_map_name(
 					sm_material.TextureStageState[1],
 					sm_material.TextureFormState[1]

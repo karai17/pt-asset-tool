@@ -33,7 +33,7 @@ from pygltflib import (
 
 from pt.cdef import *
 from pt.pdef import *
-from pt.const import SCALE_INCH_TO_METER
+from pt.const import EPSILON, SCALE_INCH_TO_METER
 from pt.buffer import BufferReader
 from pt.utils import (
 	to_np_matrix,
@@ -429,7 +429,7 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 """ PRIMITIVES """
 
 
-def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None) -> list[dict[str,]]:
+def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None, overlay_material_ids: set[int] | None = None) -> list[dict[str,]]:
 	"""Create a list of untangled primitives."""
 	prims = []
 	if not object.texture_coords or not object.vertices or not object.faces:
@@ -456,6 +456,29 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 			"joints0buffer": BufferReader(vert_words),
 			"weights0buffer": BufferReader(vert_words*4)
 		}
+
+		# the engine redraws these faces with the second stage texture alone in
+		# an alpha pass (MapDualRend, smRend3d.cpp:3805-3809, 4105-4115); the
+		# overlay prim mirrors that pass with an alpha-masked texture
+		overlay_prim = None
+		if overlay_material_ids and material_id in overlay_material_ids:
+			# TEXCOORD_0 is written too: some importers (Blender) create no uv
+			# layer at all for a primitive carrying only TEXCOORD_1
+			overlay_prim = {
+				"material": material_id,
+				"count": 0,
+				"anim_material": False,
+				"min": None,
+				"max": None,
+				"positionbuffer": BufferReader(vert_words*3),
+				"normalbuffer": BufferReader(vert_words*3),
+				"texcoord0buffer": BufferReader(vert_words*2),
+				"texcoord1buffer": BufferReader(vert_words*2),
+				"texcoord0": True,
+				"texcoord1": True,
+				"joints0buffer": BufferReader(vert_words),
+				"weights0buffer": BufferReader(vert_words*4)
+			}
 
 		for iface in faces:
 			# POSITION
@@ -534,6 +557,49 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				elif len(tc.uv_sets) == 1:
 					prim["texcoord1"] = False
 					prim["texcoord0"] = prim["texcoord0"] and True
+
+				# the overlay pass only covers faces that actually carry a second
+				# UV set; the engine alpha-passes exactly those (they ride the
+				# NextTex chain). The same UVs fill both slots: glTF requires the
+				# indexed semantic set to start at 0 and be continuous, and the
+				# overlay material samples slot 1
+				if overlay_prim and len(tc.uv_sets) > 1:
+					uvs = [
+						uv1[0].u, 1-uv1[0].v,
+						uv1[1].u, 1-uv1[1].v,
+						uv1[2].u, 1-uv1[2].v
+					]
+					overlay_prim["texcoord0buffer"].write((c_float*6)(*uvs))
+					overlay_prim["texcoord1buffer"].write((c_float*6)(*uvs))
+					overlay_prim["count"] += 3
+
+					# the engine draws pass 2 at equal depth and wins by LESS-EQUAL
+					# compare; depth buffers give no such guarantee for coplanar
+					# primitives, so nudge the pass along the face normal instead
+					overlay_positions = [
+						(vertices[0].x + normal.x*EPSILON, vertices[0].y + normal.y*EPSILON, vertices[0].z + normal.z*EPSILON),
+						(vertices[1].x + normal.x*EPSILON, vertices[1].y + normal.y*EPSILON, vertices[1].z + normal.z*EPSILON),
+						(vertices[2].x + normal.x*EPSILON, vertices[2].y + normal.y*EPSILON, vertices[2].z + normal.z*EPSILON)
+					]
+					overlay_prim["positionbuffer"].write((c_float*9)(
+						*overlay_positions[0], *overlay_positions[1], *overlay_positions[2]
+					))
+					for p in overlay_positions:
+						if not overlay_prim["min"]:
+							overlay_prim["min"] = PTVector3(x=p[0], y=p[1], z=p[2])
+							overlay_prim["max"] = PTVector3(x=p[0], y=p[1], z=p[2])
+						else:
+							overlay_prim["min"].x = min(overlay_prim["min"].x, p[0])
+							overlay_prim["min"].y = min(overlay_prim["min"].y, p[1])
+							overlay_prim["min"].z = min(overlay_prim["min"].z, p[2])
+							overlay_prim["max"].x = max(overlay_prim["max"].x, p[0])
+							overlay_prim["max"].y = max(overlay_prim["max"].y, p[1])
+							overlay_prim["max"].z = max(overlay_prim["max"].z, p[2])
+					overlay_prim["normalbuffer"].write((c_float*9)(
+						normal.x, normal.y, normal.z,
+						normal.x, normal.y, normal.z,
+						normal.x, normal.y, normal.z
+					))
 			else:
 				prim["texcoord0"] = False
 				prim["texcoord1"] = False
@@ -558,6 +624,9 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 			else:
 				prim["joints0buffer"] = None
 				prim["weights0buffer"] = None
+				if overlay_prim:
+					overlay_prim["joints0buffer"] = None
+					overlay_prim["weights0buffer"] = None
 
 		if not prim["min"]:
 			prim["min"] = PTVector3()
@@ -567,6 +636,10 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 
 		if prim["count"] > 0:
 			prims.append(prim)
+
+		if overlay_prim and overlay_prim["count"] > 0:
+			overlay_prim["overlay_material"] = True
+			prims.append(overlay_prim)
 
 	return prims
 
@@ -742,6 +815,10 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	segments = str(path).split(os.path.sep)
 	fs_dir = os.path.sep.join(segments[:-1])
 
+	# Reference: smType.h:653
+	overlay_material_ids = set()
+	overlay_index_map = {}
+
 	anim_materials = []
 	for i, material in enumerate(model.materials):
 		if material.texture_map.anim_frames:
@@ -806,9 +883,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 		anim["offset"] = [ rect[0], 1 - rect[1] - rect[3] ]
 		anim["scale"] = [ rect[2], rect[3] ]
 
+	material_index_map = {}
 	for i, material in enumerate(model.materials):
 		mtl = Material()
 		gltf.materials.append(mtl)
+		material_index_map[i] = len(gltf.materials)-1
 
 		# Priston Tale's material names are delimited with : but that is invalid
 		# for filesystems. Also remove the trailing delimiter.
@@ -889,8 +968,34 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 					))
 
 					selfillum = 1 if material.selfillum else 0
-					mtl.emissiveFactor = [ selfillum, selfillum, selfillum ]
-					mtl.emissiveTexture = TextureInfo(index = len(gltf.textures)-1)
+
+					# alpha-loaded second textures are the engine's dual-render
+					# overlays (MapDualRend -> SetD3DRendStateOnlyAlpha,
+					# smRend3d.cpp:3805-3809, 4124-4132): the faces are redrawn
+					# with the second texture alone, alpha blended. glTF has no
+					# second-diffuse slot, so the pass becomes its own
+					# alpha-masked material directly after the base one; the
+					# texture alpha cuts everything but the overlay art
+					if material.texture_map.second_has_alpha:
+						overlay_mtl = Material(
+							name = mtl.name + "-overlay",
+							alphaMode = "MASK",
+							doubleSided = mtl.doubleSided,
+							pbrMetallicRoughness = PbrMetallicRoughness(
+								baseColorTexture = TextureInfo(index = len(gltf.textures)-1, texCoord = 1),
+								metallicFactor = 0
+							)
+						)
+						overlay_mtl.extras["collide"] = False
+						overlay_mtl.extras["overlayFor"] = i
+						gltf.materials.append(overlay_mtl)
+						overlay_index_map[i] = len(gltf.materials)-1
+						overlay_material_ids.add(i)
+					# everything else modulates the stage over the diffuse
+					# (MULTIMIX stage 1, smRend3d.cpp:3778-3789)
+					else:
+						mtl.emissiveFactor = [ selfillum, selfillum, selfillum ]
+						mtl.emissiveTexture = TextureInfo(index = len(gltf.textures)-1, texCoord = 1)
 
 			if material.texture_map.opacity_path:
 				mtl.alphaMode = "BLEND"
@@ -947,7 +1052,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	anim_ids = { a["material"] for a in anim_atlas }
 
 	for object in model.objects:
-		untangled_prims = make_primitives(object, gltf.nodes, anim_ids)
+		untangled_prims = make_primitives(object, gltf.nodes, anim_ids, overlay_material_ids)
 		prim_pass = []
 		prim_col = []
 		prim_colonly = []
@@ -978,7 +1083,10 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 		for prim in untangled_prims:
-			p = Primitive(material = prim["material"])
+			if prim.get("overlay_material"):
+				p = Primitive(material = overlay_index_map[prim["material"]])
+			else:
+				p = Primitive(material = material_index_map[prim["material"]])
 
 			# POSITION
 			gltf.buffers.append(Buffer(

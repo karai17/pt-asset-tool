@@ -68,9 +68,11 @@ for (tcnt = 0; tcnt < 8; tcnt++) {
 }
 ```
 
-The second stage is combined with the first with `D3DTOP_ADD`
-(smRend3d.cpp:3628-3630). So the on-disk chain order **is** the blend order:
-`chain[0]` = diffuse, `chain[1]` = the map added on top of it.
+The second stage defaults to `D3DTOP_MODULATE` with the result of stage 0
+(smRend3d.cpp:3782-3784); lightmap materials override it to `D3DTOP_ADD`
+via `TextureStageState[1] = 7` (smRend3d.cpp:3628-3630). So the on-disk chain
+order **is** the blend order: `chain[0]` = diffuse, `chain[1]` = the map
+combined on top of it.
 
 **What goes in the second slot, in shipped data:**
 
@@ -80,6 +82,16 @@ The second stage is combined with the first with `D3DTOP_ADD`
   96%+ of all faces in dun-1 / Dun-6a.
 - **A handful of actors**: a second state (`BS_MODULATE:FS_NONE:`) that acts
   as an emissive/glow pass. Same chain mechanics, different blend intent.
+- **Dual-render overlays** (40 materials, 7 textures: `dun001.tga`,
+  `dun2_036.tga`, `lee_07.tga`, `op_OP.tga`, `rssl.tga`, `Ava_M_01/03.tga`):
+  the second texture loads with an alpha channel - a 32bpp TGA, or a texture
+  with a `NameA` companion in the material blob loaded through
+  `LoadDibSurfaceAlpha` - which sets `MapOpacity` on stage 1
+  (smTexture.cpp:3581/4208). `SetD3DRendState` then returns `MapDualRend`
+  (smRend3d.cpp:3805-3809) and the faces are drawn a second time with the
+  second texture alone, srcalpha/invsrcalpha blended, winning ties through
+  D3D's LESS-EQUAL depth compare (smRend3d.cpp:4124-4132,
+  SetD3DRendStateOnlyAlpha 4002-4078).
 
 The chain depth equals the number of texture stages the face participates in.
 Histograms from shipped files:
@@ -216,7 +228,9 @@ exactly the lightmap atlas footprint.
   list (no UVs, never written).
 - `decode_material` classifies the second texture path: names containing
   `lightingmap` become `texture_map.lightmap_path`, everything else stays
-  `selfillum_path` (actor glow maps).
+  `selfillum_path` (actor glow maps) and records `second_has_alpha` when the
+  stage-1 texture loads with alpha (`.tga`, or a `NameA` companion in the
+  material blob).
 
 `src/pt/encode/gltf.py`:
 
@@ -226,6 +240,13 @@ exactly the lightmap atlas footprint.
   `texCoord: 1` - the closest standard-glTF stand-in for a baked
   light-add pass; consumers wanting the original look add the map over the
   diffuse themselves, exactly as the engine did.
+- Dual-render overlays become a second primitive that mirrors the engine's
+  alpha pass: an `alphaMode: MASK` material with the stage-1 texture as
+  `baseColorTexture (texCoord: 1)`, appended directly after its base
+  material. Its positions are offset along the face normal by
+  `EPSILON` (src/pt/const.py) - the engine wins coplanar pass-2
+  draws through D3D's LESS-EQUAL depth compare; depth-buffered glTF
+  importers give no such guarantee.
 - Faces within one primitive may disagree on chain length; a primitive gets
   `TEXCOORD_1` only if *some* face has a second set, others read it as the
   zero UV.

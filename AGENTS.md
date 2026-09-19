@@ -2,10 +2,16 @@
 
 This project is a data format converter. It takes input of files in old, proprietary formats and outputs the data to files in modern, open source formats.
 
-Read:
+Always:
+
+- Think and speak in English, unless directly quoting or interacting with another language
+- All changes proposed must reference the official game source code; changes must be source-accurate, no exceptions
+
+Always read:
 
 - `src/pt/cdef.py` - C structs that represent the old data formats
 - `src/pt/pdef.py` - Python data classes that represent an in-app intermediary format
+- `src/pt/const.py` - Python data structures that hold various tables of data
 - `README.md` - information about the project, including the structure of the 3D model files
 
 Read on demand:
