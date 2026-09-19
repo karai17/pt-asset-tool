@@ -817,13 +817,14 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 		mtl.doubleSided = material.two_sided
 		mtl.alphaCutoff = None
 
-		# TODO: godot flag, otherwise move to extras
-		# set non-colliders to not collide
-		if not material.collide and not mtl.name.find("-pass") >= 0:
-			mtl.name += "-pass"
+		# authored engine attributes as data, for any consumer
+		mtl.extras["collide"] = material.collide
+		mtl.extras["wall"] = (material.script_flags & 0x400) == 0x400
+		mtl.extras["renderLatter"] = (material.mesh_flags & 0x2000) == 0x2000
 
-		if mtl.name.find("-notpass") >= 0:
-			mtl.name = mtl.name.replace("-pass", "")
+		# non-collidable materials are pass-through geometry
+		if not material.collide and mtl.name.find("-pass") < 0:
+			mtl.name += "-pass"
 
 		# TODO: figure out how to add the map name / render flags (extras?)
 		if material.texture_map:
@@ -1113,14 +1114,17 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				p.attributes.WEIGHTS_0 = len(gltf.buffers)-1
 
+			material = model.materials[prim["material"]]
+			is_wall = (material.script_flags & 0x400) == 0x400
+
 			# flipbook prims get their own mesh so the uv animation only moves
 			# their texture coordinates
 			if prim["anim_material"]:
 				prim_anim.append((prim["material"], p))
 			# animated objects are not collidable
-			elif (hasattr(object, "animation") and object.animation) or gltf.materials[prim["material"]].name.find("-pass") >= 0:
+			elif (hasattr(object, "animation") and object.animation) or not material.collide:
 				prim_pass.append(p)
-			elif gltf.materials[prim["material"]].name.find("-wall") >= 0:
+			elif is_wall:
 				prim_colonly.append(p)
 			else:
 				prim_col.append(p)
@@ -1132,7 +1136,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				))
 
 				node = Node(
-					name = f"{object.name}-{len(gltf.nodes)}-anim",
+					name = f"{object.name}-{len(gltf.nodes)}" + ("-anim" if args.godot else ""),
+					extras = { "role": "anim" },
 					mesh = len(gltf.meshes)-1,
 				)
 
@@ -1156,7 +1161,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				))
 
 				node = Node(
-					name = f"{object.name}-{len(gltf.nodes)}-col", # import hint for godot's collision system
+					name = f"{object.name}-{len(gltf.nodes)}" + ("-col" if args.godot else ""), # -col: godot import hint (trimesh collision)
+					extras = { "role": "col" },
 					mesh = len(gltf.meshes)-1,
 				)
 
@@ -1178,7 +1184,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				))
 
 				node = Node(
-					name = f"{object.name}-{len(gltf.nodes)}-colonly", # import hint for godot's collision system
+					name = f"{object.name}-{len(gltf.nodes)}" + ("-colonly" if args.godot else ""), # -colonly: godot import hint (invisible collision)
+					extras = { "role": "colonly" },
 					mesh = len(gltf.meshes)-1,
 				)
 
@@ -1201,6 +1208,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				node = Node(
 					name = f"{object.name}-{len(gltf.nodes)}",
+					extras = { "role": "pass" },
 					mesh = len(gltf.meshes)-1,
 				)
 
@@ -1223,7 +1231,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			))
 
 			node = Node(
-				name = f"{object.name}-{len(gltf.nodes)}-anim",
+				name = f"{object.name}-{len(gltf.nodes)}" + ("-anim" if args.godot else ""),
+				extras = { "role": "anim" },
 				mesh = len(gltf.meshes)-1,
 			)
 
@@ -1245,7 +1254,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			))
 
 			node = Node(
-				name = f"{object.name}-{len(gltf.nodes)}-col", # import hint for godot's collision system
+				name = f"{object.name}-{len(gltf.nodes)}" + ("-col" if args.godot else ""), # -col: godot import hint (trimesh collision)
+				extras = { "role": "col" },
 				mesh = len(gltf.meshes)-1,
 			)
 
@@ -1266,7 +1276,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			))
 
 			node = Node(
-				name = f"{object.name}-{len(gltf.nodes)}-colonly", # import hint for godot's collision system
+				name = f"{object.name}-{len(gltf.nodes)}" + ("-colonly" if args.godot else ""), # -colonly: godot import hint (invisible collision)
+				extras = { "role": "colonly" },
 				mesh = len(gltf.meshes)-1,
 			)
 
@@ -1288,6 +1299,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 			node = Node(
 				name = f"{object.name}-{len(gltf.nodes)}",
+				extras = { "role": "pass" },
 				mesh = len(gltf.meshes)-1,
 			)
 
@@ -1309,7 +1321,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			track.rotation = get_animation_track(gltf, object.animation.rotation, "rotation")
 			track.scale = get_animation_track(gltf, object.animation.scale, "scale")
 
-			process_animation(gltf, object.animation, "ani-loop", len(gltf.nodes)-1, track)
+			process_animation(gltf, object.animation, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track)
 
 	""" ANIMATIONS """
 
@@ -1324,8 +1336,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 			for animation in model.animations:
 				name = animation.name
-				if animation.repeat:
-					name += "-loop" # TODO: flag this for godot and instead put it in extras by default?
+				if args.godot and animation.repeat:
+					name += "-loop" # godot: keeps the imported animation looping; repeat stays in extras for everyone
 
 				process_animation(gltf, bone.animation, name, bone._id, track, animation)
 
@@ -1342,7 +1354,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 				for animation in model.talk_animations:
 					name = animation.name
-					if animation.repeat:
+					if args.godot and animation.repeat:
 						name += "-loop"
 
 					process_animation(gltf, bone.animation, name, bone._id, track, animation)

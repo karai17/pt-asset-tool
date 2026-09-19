@@ -621,6 +621,8 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	material.selfillum = True if sm_material.SelfIllum > 0 else False
 	material.two_sided = True if sm_material.TwoSide > 0 else False
 	material.mesh_flags = sm_material.MeshState
+	material.script_flags = sm_material.UseState
+	material.blend_type = sm_material.BlendType
 	material.collide = (sm_material.MeshState & 1) == 1
 
 	# If we have textures and paths to those textures, we need to add

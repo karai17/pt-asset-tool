@@ -22,6 +22,7 @@ By default, if you run this application it will not produce results. You need to
 -p, --png            Encode textures as PNG
 -j, --json           Encode models as JSON
 -g, --gltf           Encode models as GLTF
+    --godot          Apply Godot-specific hints to GLTF output
 ```
 
 ```sh

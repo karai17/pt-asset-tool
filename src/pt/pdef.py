@@ -134,6 +134,8 @@ class PTModelMaterial:
 	selfillum: bool = False
 	two_sided: bool = False
 	mesh_flags: int = 0
+	script_flags: int = 0
+	blend_type: int = 0
 	collide: bool = False
 	texture_map: PTTextureMap = field(default_factory=PTTextureMap)
 	anim_speed: int = 0
