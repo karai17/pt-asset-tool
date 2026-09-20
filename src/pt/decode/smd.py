@@ -249,6 +249,7 @@ def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> li
 			dynamic = bool(type_flags & 0x80000),
 			night = bool(type_flags & 0x1),
 			lens = bool(type_flags & 0x2),
+			pulse = bool(type_flags & 0x4),
 			obj = bool(type_flags & 0x8),
 			position = PTVector3(
 				x = sm_light.x / 256,
@@ -267,14 +268,22 @@ def decode_stage_lights(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> li
 	return lights
 
 
-# Resolve the parent by NodeParent name. The engine matches parents with
-# _stricmp (smPAT3D::LinkObject, smObj3d.cpp:2340-2355; bones also match by
-# _stricmp in smPAT3D::GetObjectFromName, smObj3d.cpp:2383).
-def decode_actor_parent(parent_name: str | None) -> smOBJ3D | None:
-	if parent_name:
-		for sm_object in decoded_objects:
-			if parent_name == decode_string(sm_object.NodeName):
-				return sm_object
+# Resolve the parent by NodeParent name. The engine scans the full object
+# list (including the object itself, so a NodeParent equal to NodeName
+# self-links) with _stricmp (smPAT3D::LinkObject, smObj3d.cpp:2340-2355;
+# bones also match by _stricmp in smPAT3D::GetObjectFromName, smObj3d.cpp:2383).
+# Called while the object list is still being decoded, so the self test uses
+# the object under construction.
+def decode_actor_parent(parent_name: str | None, sm_object_self: smOBJ3D | None = None) -> smOBJ3D | None:
+	if not parent_name:
+		return None
+
+	if sm_object_self and parent_name.casefold() == decode_string(sm_object_self.NodeName).casefold():
+		return sm_object_self
+
+	for sm_object in decoded_objects:
+		if parent_name.casefold() == decode_string(sm_object.NodeName).casefold():
+			return sm_object
 
 
 # Mirror of the engine's runtime TM handling. The authoritative static
@@ -512,22 +521,24 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 
 	# Some objects have no transforms
 	if sm_object.TmRotCnt + sm_object.TmPosCnt + sm_object.TmScaleCnt == 0:
-		return animation, 100 # default value
+		return animation, None
 
 	rot_window = key_frame_window(sm_object, sm_object.TmRotCnt, sm_object.TmRotFrame)
 	pos_window = key_frame_window(sm_object, sm_object.TmPosCnt, sm_object.TmPosFrame)
 	scl_window = key_frame_window(sm_object, sm_object.TmScaleCnt, sm_object.TmScaleFrame)
 
-	# For each key group, keep only the keys inside the valid window and take
-	# the last kept key's frame as the object's last frame. The engine samples
-	# keys with the same window lookup (smObj3d.cpp:1252 GetTmFramePos,
+	# For each key group, keep only the keys inside the valid window. For
+	# scene last_frame, mirror smPAT3D::AddObject exactly: the last frame of
+	# the whole TmPos array overwrites the last frame of the whole TmRot
+	# array, and scale keys are ignored (the per-frame animation sampling
+	# itself uses the same window lookup, smObj3d.cpp:1252 GetTmFramePos,
 	# :1272 GetTmFrameScale, :1292 GetTmFrameRot, called from TmAnimation at
-	# smObj3d.cpp:1424-1426); the last position key also feeds MaxFrame in
-	# smPAT3D::AddObject (smObj3d.cpp:2290-2293).
+	# smObj3d.cpp:1424-1426).
 	rot_start, rot_end = rot_window
 	pos_start, pos_end = pos_window
 	scl_start, scl_end = scl_window
 
+	rot_last = None
 	for i in range(sm_object.TmRotCnt):
 		sm_rotation = sm_modelbuffer.read(smTM_ROT)
 		if rot_start <= i < rot_end:
@@ -539,8 +550,8 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 				w = sm_rotation.w
 			))
 
-			if not last_frame and i == rot_end-1:
-				last_frame = sm_rotation.frame
+		if i == sm_object.TmRotCnt - 1:
+			rot_last = sm_rotation.frame
 
 	for i in range(sm_object.TmPosCnt):
 		sm_position = sm_modelbuffer.read(smTM_POS)
@@ -552,8 +563,8 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 				z = sm_position.z
 			))
 
-			if not last_frame and i == pos_end-1:
-				last_frame = sm_position.frame
+		if i == sm_object.TmPosCnt - 1:
+			last_frame = sm_position.frame
 
 	for i in range(sm_object.TmScaleCnt):
 		sm_scale = sm_modelbuffer.read(smTM_SCALE)
@@ -565,8 +576,8 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 				z = sm_scale.z / 256
 			))
 
-		if not last_frame and i == scl_end-1:
-			last_frame = sm_scale.frame
+	if last_frame is None and rot_last is not None:
+		last_frame = rot_last
 
 	for _ in range(sm_object.TmRotCnt):
 		# jump pointer ahead over the TmPrevRot matrix block written after the
@@ -624,6 +635,11 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	material.script_flags = sm_material.UseState
 	material.blend_type = sm_material.BlendType
 	material.collide = (sm_material.MeshState & 1) == 1
+	# engine-side mesh-deform mode (smMATERIAL.WindMeshBottom): AddMaterial
+	# maps plain sMATS_SCRIPT_WIND to sMATS_SCRIPT_WINDZ1 and copies
+	# wind_z1/z2/x1/x2/water verbatim (smTexture.cpp:884-913); blink-color
+	# time codes reuse the field (smTexture.cpp:999-1010)
+	material.wind_mesh_bottom = sm_material.WindMeshBottom & 0x7FF
 
 	# If we have textures and paths to those textures, we need to add
 	# texture mapping data.
@@ -700,15 +716,16 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 	ChangeFileExt + SaveFile (smRead3d.cpp:1983-1985).
 	"""
 	bones = []
+	last_frame = None
 	sm_fileheader = sm_motionbuffer.read(smDFILE_HEADER)
 
 	if sm_fileheader.MatCounter != 0:
 		print("Bone objects should not have materials.")
-		return bones, 100
+		return bones, None
 
 	if sm_fileheader.ObjCounter <= 0:
 		print("Bone objects not detected.")
-		return bones, 100
+		return bones, None
 
 	sm_motionbuffer.seek(sm_fileheader.First_ObjInfoPoint)
 
@@ -721,18 +738,18 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 		# Reference: smObj3d.cpp::smOBJ3D::SaveFile (lines ~2117 -> 2121)
 		if sm_object.Head != OBJECT_HEAD and sm_object.Head != OBJECT_HEAD_OLD:
 			print(f"Bone object #{i} has an invalid header: {sm_object.Head}")
-			return bones, 100
+			return bones, None
 
 		if sm_object.Physique_ptr != 0:
 			print(f"Bone object #{i} has bones.")
-			return bones, 100
+			return bones, None
 
 		bone = PTActorBone()
 		bone.name = decode_string(sm_object.NodeName)
 
 		parent = decode_string(sm_object.NodeParent)
 		bone.parent = parent if len(parent) > 0 else None
-		sm_object_parent = decode_actor_parent(bone.parent)
+		sm_object_parent = decode_actor_parent(bone.parent, sm_object)
 
 		bone.num_vertices = sm_object.nVertex
 		bone.num_faces = sm_object.nFace
@@ -743,9 +760,14 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 		bone.vertices = decode_actor_vertices(sm_motionbuffer, sm_object)
 		bone.faces = decode_actor_faces(sm_motionbuffer, sm_object)
 		bone.texture_coords = decode_actor_texture_coords(sm_motionbuffer, sm_object)
-		bone.animation, last_frame = decode_actor_animation(sm_motionbuffer, sm_object)
+		bone.animation, bone_last_frame = decode_actor_animation(sm_motionbuffer, sm_object)
 		bone.transform = decode_actor_transform(sm_object, sm_object_parent)
 		bones.append(bone)
+
+		# MaxFrame is model-wide: accumulate per-object contributions like
+		# smPAT3D::AddObject instead of keeping the last decoded object's value
+		if bone_last_frame is not None:
+			last_frame = bone_last_frame if last_frame is None else max(last_frame, bone_last_frame)
 
 		decoded_objects.append(sm_object)
 	return bones, last_frame
@@ -817,7 +839,8 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 	if sm_motionbuffer:
 		bones, last_frame = decode_bones(sm_motionbuffer)
 		model.bones = bones
-		model.scene.last_frame = int(last_frame / model.scene.ticks_per_frame)
+		if last_frame is not None:
+			model.scene.last_frame = int(last_frame / model.scene.ticks_per_frame)
 
 	# If there is not bone data, get the last frame from the model data.
 	elif sm_fileheader.ObjCounter > 0:
@@ -906,7 +929,7 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 
 			parent = decode_string(sm_object.NodeParent)
 			object.parent = parent if len(parent) > 0 else None
-			sm_object_parent = decode_actor_parent(object.parent)
+			sm_object_parent = decode_actor_parent(object.parent, sm_object)
 
 			object.num_vertices = sm_object.nVertex
 			object.num_faces = sm_object.nFace

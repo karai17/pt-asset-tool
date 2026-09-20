@@ -138,6 +138,7 @@ class PTModelMaterial:
 	script_flags: int = 0
 	blend_type: int = 0
 	collide: bool = False
+	wind_mesh_bottom: int = 0
 	texture_map: PTTextureMap = field(default_factory=PTTextureMap)
 	anim_speed: int = 0
 	anim_mask: int = 0
@@ -195,6 +196,7 @@ class PTStageLight:
 	dynamic: bool = False
 	night: bool = False
 	lens: bool = False
+	pulse: bool = False
 	obj: bool = False
 	position: PTVector3 = field(default_factory=PTVector3)
 	range: float = 0

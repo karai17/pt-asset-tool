@@ -900,6 +900,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 		mtl.extras["collide"] = material.collide
 		mtl.extras["wall"] = (material.script_flags & 0x400) == 0x400
 		mtl.extras["renderLatter"] = (material.mesh_flags & 0x2000) == 0x2000
+		if material.wind_mesh_bottom:
+			mtl.extras["windMeshBottom"] = material.wind_mesh_bottom
 
 		# non-collidable materials are pass-through geometry
 		if not material.collide and mtl.name.find("-pass") < 0:
@@ -1486,6 +1488,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 					(light.dynamic, "-dynamic"),
 					(light.night, "-night"),
 					(light.lens, "-lens"),
+					(light.pulse, "-pulse"),
 					(light.obj, "-obj")
 				) if flag ]
 			)
