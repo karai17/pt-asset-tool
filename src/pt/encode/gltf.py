@@ -3,10 +3,12 @@ import numpy as np
 import os
 
 from argparse import Namespace
+from bisect import bisect_left, bisect_right
 from ctypes import *
 from dataclasses import asdict
 from pathlib import Path
 from PIL import Image as PILImage
+from struct import pack
 from pygltflib import (
 	GLTF2,
 	Accessor,
@@ -299,13 +301,11 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 					values += [ transform.x, transform.z, transform.y ]
 		# one shared output buffer per track: per-clip accessors slice it with
 		# byteOffset, exactly like the engine slices its key arrays per window
-		output_buffer = BufferReader(len(values)*4)
-		for v in values:
-			output_buffer.write(c_float(v))
+		values_bytes = pack(f"<{len(values)}f", *values)
 
 		gltf.buffers.append(Buffer(
-			uri = "data:application/octet-stream;base64," + base64.b64encode(output_buffer.get_data()).decode(),
-			byteLength = len(output_buffer.get_data())
+			uri = "data:application/octet-stream;base64," + base64.b64encode(values_bytes).decode(),
+			byteLength = len(values_bytes)
 		))
 
 		return PTAnimationSampler(
@@ -317,7 +317,7 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 	return PTAnimationSampler()
 
 
-def process_animation_transform(gltf: GLTF2, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata) -> None:
+def process_animation_transform(gltf: GLTF2, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata, input_accessors: dict) -> None:
 	"""Process animation transforms."""
 	rot = name == "rotation"
 
@@ -326,58 +326,67 @@ def process_animation_transform(gltf: GLTF2, name: str, gltf_animation: Animatio
 		# (smObj3d.cpp::GetTmFramePos); slice the track to that window and make
 		# times relative to the clip's own start. Windowing uses the sampler's
 		# own frames so the time and value slices always stay in sync, even when
-		# the rotation and position tracks have different key counts.
+		# the rotation and position tracks have different key counts. Frames are
+		# strictly increasing (get_animation_track drops duplicate keys), so the
+		# window bounds are a binary search instead of a full scan.
 		if animation:
-			indices = [ i for i, fr in enumerate(sampler.frames) if animation.start_frame * 160 <= fr <= animation.end_frame * 160 ]
-			if not indices:
+			sidx = bisect_left(sampler.frames, animation.start_frame * 160)
+			eidx = bisect_right(sampler.frames, animation.end_frame * 160) - 1
+			if sidx > eidx:
 				return
-			sidx, eidx = indices[0], indices[-1]
 			tbase = animation.start_frame / 30
 		else:
 			sidx, eidx = 0, len(sampler.times)-1
 			tbase = 0
 
 		sz = 4 if rot else 3
-		times = [ t - tbase for t in sampler.times[sidx:eidx+1] ]
+		count = eidx - sidx + 1
 
-		times_buffer = BufferReader(len(times)*4)
-		for t in times:
-			times_buffer.write(c_float(t))
+		# every bone of a clip walks the same dense frame grid, so the rebased
+		# times repeat verbatim across thousands of channels; the packed bytes
+		# are the sharing key, which makes a hit exact by construction
+		times_bytes = pack(f"<{count}f", *( t - tbase for t in sampler.times[sidx:eidx+1] ))
 
-		gltf.buffers.append(Buffer(
-			uri = "data:application/octet-stream;base64," + base64.b64encode(times_buffer.get_data()).decode(),
-			byteLength = len(times_buffer.get_data())
-		))
+		input_accessor = input_accessors.get(times_bytes)
+		if input_accessor is None:
+			gltf.buffers.append(Buffer(
+				uri = "data:application/octet-stream;base64," + base64.b64encode(times_bytes).decode(),
+				byteLength = count * 4
+			))
 
-		gltf.bufferViews.append(BufferView(
-			buffer = len(gltf.buffers)-1,
-			byteLength = len(times_buffer.data)
-		))
+			gltf.bufferViews.append(BufferView(
+				buffer = len(gltf.buffers)-1,
+				byteLength = count * 4
+			))
 
-		gltf.accessors.append(Accessor(
-			bufferView = len(gltf.bufferViews)-1,
-			componentType = FLOAT,
-			count = len(times),
-			type = "SCALAR",
-			min = [ min(times) ],
-			max = [ max(times) ]
-		))
+			# times are strictly increasing, so the ends are the extremes
+			gltf.accessors.append(Accessor(
+				bufferView = len(gltf.bufferViews)-1,
+				componentType = FLOAT,
+				count = count,
+				type = "SCALAR",
+				min = [ sampler.times[sidx] - tbase ],
+				max = [ sampler.times[eidx] - tbase ]
+			))
+
+			input_accessor = len(gltf.accessors)-1
+			input_accessors[times_bytes] = input_accessor
 
 		gltf.bufferViews.append(BufferView(
 			buffer = sampler.output,
 			byteOffset = sidx * sz * 4,
-			byteLength = (eidx - sidx + 1) * sz * 4
+			byteLength = count * sz * 4
 		))
 
 		gltf.accessors.append(Accessor(
 			bufferView = len(gltf.bufferViews)-1,
 			componentType = FLOAT,
-			count = eidx - sidx + 1,
+			count = count,
 			type = "VEC4" if rot else "VEC3"
 		))
 
 		gltf_animation.samplers.append(Sampler(
-			input = len(gltf.accessors)-2,
+			input = input_accessor,
 			output = len(gltf.accessors)-1,
 			wrapS = None,
 			wrapT = None
@@ -392,7 +401,7 @@ def process_animation_transform(gltf: GLTF2, name: str, gltf_animation: Animatio
 		))
 
 
-def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack, animation: PTMotionMetadata | None = None) -> None:
+def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack, animation: PTMotionMetadata | None = None, input_accessors: dict | None = None) -> None:
 	"""Process an animation."""
 	# NOTE: death animation has 8 more frames than listed in the inx file (for some reason)
 	# This may not need to be added back for GLTF, but may be required for ASE.
@@ -432,9 +441,9 @@ def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack
 					gltf_animation.extras["skillCodes"] = animation.skill_codes
 					gltf_animation.extras["mapPosition"] = animation.map_position
 					gltf_animation.extras["rate"] = animation.rate
-					process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation)
-					process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation)
-					process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation)
+					process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation, input_accessors)
+					process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation, input_accessors)
+					process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation, input_accessors)
 					if len(gltf_animation.channels) > 0:
 						gltf.animations.append(gltf_animation)
 				return
@@ -457,9 +466,9 @@ def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack
 			gltf_animation.extras["mapPosition"] = animation.map_position
 			gltf_animation.extras["rate"] = animation.rate
 
-	process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation)
-	process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation)
-	process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation)
+	process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation, input_accessors)
+	process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation, input_accessors)
+	process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation, input_accessors)
 
 	if not found and len(gltf_animation.channels) > 0:
 		gltf.animations.append(gltf_animation)
@@ -734,15 +743,19 @@ def write_anim_atlas(path: Path, paths: list[Path], rects: list[list[float]], si
 	atlas.save(path)
 
 
-def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> None:
-	"""Encodes the interal model structure to a GLTF/GLB file and writes it to disk."""
+def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GLTF2 | None:
+	"""Builds the glTF document for a model."""
 	# invalid model data
 	if not model.materials and not model.objects:
 		print(f"Model '{model.filename}' does not contain any data.")
-		return
+		return None
 
 	gltf = GLTF2()
 	gltf.scene = 0
+
+	# input (time) accessors are content-shared across all channels whose
+	# rebased key times match byte for byte
+	input_accessors = {}
 
 	""" BONES """
 
@@ -862,8 +875,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 	""" MATERIALS """
 
-	segments = str(path).split(os.path.sep)
-	fs_dir = os.path.sep.join(segments[:-1])
+	fs_dir = str(path.parent)
 
 	# Reference: smType.h:653
 	overlay_material_ids = set()
@@ -1498,7 +1510,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			if getattr(object, "physique", None):
 				continue
 
-			process_animation(gltf, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track)
+			process_animation(gltf, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track, None, input_accessors)
 
 	""" ANIMATIONS """
 
@@ -1516,7 +1528,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				if args.godot and animation.repeat:
 					name += "-loop" # godot: keeps the imported animation looping; repeat stays in extras for everyone
 
-				process_animation(gltf, name, bone._id, track, animation)
+				process_animation(gltf, name, bone._id, track, animation, input_accessors)
 
 		# facial (talk) animations live in the same smb frame space as the regular
 		# motions but are separate frame ranges, so they get their own sampler pass
@@ -1534,7 +1546,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 					if args.godot and animation.repeat:
 						name += "-loop"
 
-					process_animation(gltf, name, bone._id, track, animation)
+					process_animation(gltf, name, bone._id, track, animation, input_accessors)
 
 	""" TEXTURE ANIMATIONS """
 
@@ -1655,5 +1667,10 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 		if extras:
 			gltf.asset.extras = extras
 
+	return gltf
+
+
+def write(path: Path, gltf: GLTF2) -> None:
+	"""Writes a built glTF document to disk as .gltf or .glb."""
 	path.parent.mkdir(exist_ok=True, parents=True)
 	gltf.save(path, gltf.asset)

@@ -94,15 +94,17 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 			jsonpath = Path(root + ".json")
 			json.encode(jsonpath, fdata)
 
-		if args.gltf:
-			root, ext = os.path.splitext(outpath)
-			gltfpath = Path(root + ".gltf")
-			gltf.encode(gltfpath, fdata, args)
+		if args.gltf or args.glb:
+			doc = gltf.build(fdata, args, Path(outpath))
 
-		if args.glb:
-			root, ext = os.path.splitext(outpath)
-			glbpath = Path(root + ".glb")
-			gltf.encode(glbpath, fdata, args)
+			if doc is not None:
+				if args.gltf:
+					root, _ = os.path.splitext(outpath)
+					gltf.write(Path(root + ".gltf"), doc)
+
+				if args.glb:
+					root, _ = os.path.splitext(outpath)
+					gltf.write(Path(root + ".glb"), doc)
 
 	t1 = now()
 	print(f"Decoded INX files in {ftime(t0, t1)} seconds.")
@@ -145,15 +147,17 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 			jsonpath = Path(root + ".json")
 			json.encode(jsonpath, fdata)
 
-		if args.gltf:
-			root, ext = os.path.splitext(outpath)
-			gltfpath = Path(root + ".gltf")
-			gltf.encode(gltfpath, fdata, args)
+		if args.gltf or args.glb:
+			doc = gltf.build(fdata, args, Path(outpath))
 
-		if args.glb:
-			root, ext = os.path.splitext(outpath)
-			glbpath = Path(root + ".glb")
-			gltf.encode(glbpath, fdata, args)
+			if doc is not None:
+				if args.gltf:
+					root, _ = os.path.splitext(outpath)
+					gltf.write(Path(root + ".gltf"), doc)
+
+				if args.glb:
+					root, _ = os.path.splitext(outpath)
+					gltf.write(Path(root + ".glb"), doc)
 
 	t1 = now()
 	print(f"Decoded SMD files in {ftime(t0, t1)} seconds.")
