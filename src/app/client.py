@@ -3,16 +3,15 @@ import os
 from argparse import Namespace
 from pathlib import Path
 
-from pt.patch import bmp, tga, wav
 from pt.decode import inx, smd
-from pt.encode import json, gltf
-from pt.encode import png
+from pt.encode import json, gltf, png
+from pt.patch import bmp, tga, wav
 from pt.utils import decode_string
 
 from app.utils import ftime, now
 
 
-def _encode(outpath: str, fdata: bytes, args: Namespace) -> None:
+def _encode_image(outpath: str, fdata: bytes, args: Namespace) -> None:
 	if args.png:
 		segments = outpath.split(os.path.sep)
 		root, ext = os.path.splitext(segments[-1])
@@ -20,9 +19,9 @@ def _encode(outpath: str, fdata: bytes, args: Namespace) -> None:
 		pngpath = Path(os.path.sep.join(segments))
 		png.encode(pngpath, fdata)
 	else:
-		outpath = Path(outpath)
-		outpath.parent.mkdir(exist_ok=True, parents=True)
-		with outpath.open("wb") as f:
+		dstpath = Path(outpath)
+		dstpath.parent.mkdir(exist_ok=True, parents=True)
+		with dstpath.open("wb") as f:
 			f.write(fdata)
 
 
@@ -35,7 +34,7 @@ def patch_bmp(bucket: list, args: Namespace) -> None:
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
 		fdata = bmp.patch(inpath)
-		_encode(outpath, fdata, args)
+		_encode_image(outpath, fdata, args)
 
 	t1 = now()
 	print(f"Patched BMP files in {ftime(t0, t1)} seconds.")
@@ -50,7 +49,7 @@ def patch_tga(bucket: list, args: Namespace) -> None:
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
 		fdata = tga.patch(inpath)
-		_encode(outpath, fdata, args)
+		_encode_image(outpath, fdata, args)
 
 	t1 = now()
 	print(f"Patched TGA files in {ftime(t0, t1)} seconds.")
@@ -99,6 +98,10 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
 			gltf.encode(gltfpath, fdata, args)
+		elif args.glb:
+			root, ext = os.path.splitext(outpath)
+			glbpath = Path(root + ".glb")
+			gltf.encode(glbpath, fdata, args)
 
 	t1 = now()
 	print(f"Decoded INX files in {ftime(t0, t1)} seconds.")
@@ -145,6 +148,10 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
 			gltf.encode(gltfpath, fdata, args)
+		elif args.glb:
+			root, ext = os.path.splitext(outpath)
+			glbpath = Path(root + ".glb")
+			gltf.encode(glbpath, fdata, args)
 
 	t1 = now()
 	print(f"Decoded SMD files in {ftime(t0, t1)} seconds.")
