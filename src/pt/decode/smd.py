@@ -504,19 +504,23 @@ def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D
 	return texture_coords
 
 
-def key_frame_window(sm_object: smOBJ3D, count: int, frames: list) -> tuple[int, int]:
+def key_frame_windows(count: int, frames: list) -> list[tuple[int, int]]:
+	""""
+	Engine key arrays are per-motion-file windows: GetTmFramePos/Rot/Scale
+	(smObj3d.cpp:1252-1320) walk the smFRAME_POS table and return PosNum of the
+	first entry with StartFrame <= frame < EndFrame and PosCnt > 0; playback
+	reads keys at [PosNum, PosNum+PosCnt). Every entry passing that validity
+	test is a readable window (merged motion files tile the whole key array);
+	entries beyond it are unwritten memory serialized as garbage and must be
+	dropped.
 	"""
-	Engine key arrays are preallocated and only the window described by the first
-	valid smFRAME_POS entry is written; the rest stays uninitialized in memory and
-	is serialized as 0xCDCDCDCD garbage.
-	Reference: smObj3d.cpp::GetTmFrameRot reads keys at [PosNum, PosNum+PosCnt)
-	only when TmFrameCnt > 0 and PosCnt > 0.
-	"""
-	if sm_object.TmFrameCnt > 0:
-		for f in frames:
-			if f.PosCnt > 0 and 0 <= f.PosNum and f.PosNum + f.PosCnt <= count:
-				return f.PosNum, f.PosNum + f.PosCnt
-	return 0, count
+	windows = []
+	for f in frames:
+		if f.PosCnt > 0 and 0 <= f.PosNum and f.PosNum + f.PosCnt <= count:
+			windows.append((f.PosNum, f.PosNum + f.PosCnt))
+	if not windows and count > 0:
+		windows.append((0, count))
+	return windows
 
 
 def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> tuple[PTActorAnimation, int]:
@@ -527,9 +531,9 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 	if sm_object.TmRotCnt + sm_object.TmPosCnt + sm_object.TmScaleCnt == 0:
 		return animation, None
 
-	rot_window = key_frame_window(sm_object, sm_object.TmRotCnt, sm_object.TmRotFrame)
-	pos_window = key_frame_window(sm_object, sm_object.TmPosCnt, sm_object.TmPosFrame)
-	scl_window = key_frame_window(sm_object, sm_object.TmScaleCnt, sm_object.TmScaleFrame)
+	rot_windows = key_frame_windows(sm_object.TmRotCnt, sm_object.TmRotFrame)
+	pos_windows = key_frame_windows(sm_object.TmPosCnt, sm_object.TmPosFrame)
+	scl_windows = key_frame_windows(sm_object.TmScaleCnt, sm_object.TmScaleFrame)
 
 	# For each key group, keep only the keys inside the valid window. For
 	# scene last_frame, mirror smPAT3D::AddObject exactly: the last frame of
@@ -538,14 +542,13 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 	# itself uses the same window lookup, smObj3d.cpp:1252 GetTmFramePos,
 	# :1272 GetTmFrameScale, :1292 GetTmFrameRot, called from TmAnimation at
 	# smObj3d.cpp:1424-1426).
-	rot_start, rot_end = rot_window
-	pos_start, pos_end = pos_window
-	scl_start, scl_end = scl_window
+	def in_windows(i: int, windows: list[tuple[int, int]]) -> bool:
+		return any(start <= i < end for start, end in windows)
 
 	rot_last = None
 	for i in range(sm_object.TmRotCnt):
 		sm_rotation = sm_modelbuffer.read(smTM_ROT)
-		if rot_start <= i < rot_end:
+		if in_windows(i, rot_windows):
 			animation.rotation.append(PTAnimationRotation(
 				frame = sm_rotation.frame,
 				x = sm_rotation.x,
@@ -559,7 +562,7 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 
 	for i in range(sm_object.TmPosCnt):
 		sm_position = sm_modelbuffer.read(smTM_POS)
-		if pos_start <= i < pos_end:
+		if in_windows(i, pos_windows):
 			animation.position.append(PTAnimationPosition(
 				frame = sm_position.frame,
 				x = sm_position.x,
@@ -572,7 +575,7 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 
 	for i in range(sm_object.TmScaleCnt):
 		sm_scale = sm_modelbuffer.read(smTM_SCALE)
-		if scl_start <= i < scl_end:
+		if in_windows(i, scl_windows):
 			animation.scale.append(PTAnimationScale(
 				frame = sm_scale.frame,
 				x = sm_scale.x / 256,
@@ -711,7 +714,7 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	return material
 
 
-def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]:
+def decode_bones(sm_motionbuffer: BufferReader, metadata: PTModelMetadata | None = None) -> tuple[list[PTActorBone], int]:
 	""""Decode an SMB bone file.
 
 	SMB files are actor-layout SMDs written by smPAT3D::SaveFile: the ASE
@@ -774,6 +777,19 @@ def decode_bones(sm_motionbuffer: BufferReader) -> tuple[list[PTActorBone], int]
 			last_frame = bone_last_frame if last_frame is None else max(last_frame, bone_last_frame)
 
 		decoded_objects.append(sm_object)
+
+	# The INX clip windows are relative to their merged motion file; the engine
+	# shifts them into the SMB's whole-key space at load time (character.cpp:585-593:
+	# sframe = TmFrame[MotionFrame-1].StartFrame/160; StartFrame += sframe;
+	# EndFrame += sframe). Apply the same shift so clips land on the keys they
+	# actually sample - rows pointing at different merged files stop colliding.
+	if metadata and metadata.animations and sm_fileheader.TmFrameCounter > 0:
+		for animation in metadata.animations:
+			if 1 <= animation.motion_frame <= sm_fileheader.TmFrameCounter:
+				sframe = sm_fileheader.TmFrame[animation.motion_frame - 1].StartFrame // 160
+				animation.start_frame += sframe
+				animation.end_frame += sframe
+
 	return bones, last_frame
 
 
@@ -841,7 +857,7 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 
 	# If there is bone data, get the last frame from the bone data.
 	if sm_motionbuffer:
-		bones, last_frame = decode_bones(sm_motionbuffer)
+		bones, last_frame = decode_bones(sm_motionbuffer, metadata)
 		model.bones = bones
 		if last_frame is not None:
 			model.scene.last_frame = int(last_frame / model.scene.ticks_per_frame)

@@ -175,7 +175,9 @@ class PTAnimationScale(PTVector3):
 
 @dataclass
 class PTAnimationSampler:
-	input: int | None = None
+	frames: list[int] = field(default_factory=list)
+	times: list[float] = field(default_factory=list)
+	values: list[float] = field(default_factory=list)
 	output: int | None = None
 
 
@@ -240,6 +242,7 @@ class PTActorAnimation:
 	rotation: list[PTAnimationRotation] = field(default_factory=list)
 	position: list[PTAnimationPosition] = field(default_factory=list)
 	scale: list[PTAnimationScale] = field(default_factory=list)
+	_filled: bool = False
 
 
 @dataclass

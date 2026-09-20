@@ -54,42 +54,28 @@ from pt.utils import (
 
 def encode_uv_animation(gltf: GLTF2, anim: dict, node_ids: list[int]) -> None:
 	"""
-	Export one flipbook as a KHR_texture_transform uv animation walking the
+	Export one flipbook as a KHR_animation_pointer uv animation walking the
 	atlas rects in frame order (the engine swaps whole textures, not uv offsets;
-	glTF uv animation is the portable equivalent). Base time matches the
-	renderer: RendStatTime is the Win32 tick count in ms and Shift_FrameSpeed
-	the right shift, so each frame lasts 2^speed ms. Mismatched per-frame
-	durations would need non-uniform keys; all shipped data runs at a constant
-	2^Shift_FrameSpeed ms (FrameMask = count-1 anim2..anim16,
-	smRend3d.cpp:3852-3854).
-
-	node_ids: mesh node ids carrying the animated primitive. The transform
-	rides the channel target's KHR_texture_transform extension, which glTF
-	defines only on TextureInfo.
+	the pointer animates the material's KHR_texture_transform offset/scale, the
+	portable glTF equivalent). smRend3d.cpp:3852-3854).
 	"""
 	if not node_ids:
-		return
+		return None
 
 	duration = (1 << anim["speed"]) * anim["count"] / 1000
-
 	times = BufferReader(4 * (anim["count"] + 1))
-	values = BufferReader(4 * 6 * (anim["count"] + 1))
+	offsets = BufferReader(4 * 3 * (anim["count"] + 1))
+	scales = BufferReader(4 * 3 * (anim["count"] + 1))
 
 	for k in range(anim["count"]):
 		times.write(c_float(k * (1 << anim["speed"]) / 1000))
 		rect = anim["rects"][k]
-		values.write((c_float*6)(
-			rect[0], rect[1],
-			rect[2], rect[3],
-			0, 0
-		))
+		offsets.write((c_float*3)(rect[0], rect[1], 0))
+		scales.write((c_float*3)(rect[2], rect[3], 0))
 
 	times.write(c_float(duration))
-	values.write((c_float*6)(
-		anim["offset"][0], anim["offset"][1],
-		anim["scale"][0], anim["scale"][1],
-		0, 0
-	))
+	offsets.write((c_float*3)(anim["offset"][0], anim["offset"][1], 0))
+	scales.write((c_float*3)(anim["scale"][0], anim["scale"][1], 0))
 
 	gltf.buffers.append(Buffer(
 		uri = "data:application/octet-stream;base64," + base64.b64encode(times.get_data()).decode(),
@@ -112,51 +98,72 @@ def encode_uv_animation(gltf: GLTF2, anim: dict, node_ids: list[int]) -> None:
 
 	input_accessor = len(gltf.accessors)-1
 
-	gltf.buffers.append(Buffer(
-		uri = "data:application/octet-stream;base64," + base64.b64encode(values.get_data()).decode(),
-		byteLength = len(values.data)
-	))
+	def append_vec3_buffer(br: BufferReader) -> int:
+		gltf.buffers.append(Buffer(
+			uri = "data:application/octet-stream;base64," + base64.b64encode(br.get_data()).decode(),
+			byteLength = len(br.data)
+		))
 
-	gltf.bufferViews.append(BufferView(
-		buffer = len(gltf.buffers)-1,
-		byteLength = len(values.data)
-	))
+		gltf.bufferViews.append(BufferView(
+			buffer = len(gltf.buffers)-1,
+			byteLength = len(br.data)
+		))
 
-	gltf.accessors.append(Accessor(
-		bufferView = len(gltf.bufferViews)-1,
-		componentType = FLOAT,
-		count = anim["count"] + 1,
-		type = "VEC3"
-	))
+		gltf.accessors.append(Accessor(
+			bufferView = len(gltf.bufferViews)-1,
+			componentType = FLOAT,
+			count = anim["count"] + 1,
+			type = "VEC3"
+		))
 
-	output_accessor = len(gltf.accessors)-1
+		return len(gltf.accessors)-1
 
-	gltf.extensionsUsed.append("KHR_texture_transform")
+	offset_accessor = append_vec3_buffer(offsets)
+	scale_accessor = append_vec3_buffer(scales)
+
+	if "KHR_texture_transform" not in gltf.extensionsUsed:
+		gltf.extensionsUsed.append("KHR_texture_transform")
+	if "KHR_animation_pointer" not in gltf.extensionsUsed:
+		gltf.extensionsUsed.append("KHR_animation_pointer")
 
 	gltf_animation = next((ani for ani in gltf.animations if ani.name == "tex-anim"), None)
 	if gltf_animation is None:
 		gltf_animation = Animation(name = "tex-anim")
 		gltf.animations.insert(0, gltf_animation)
 
-	for node_id in node_ids:
+	material_index = anim.get("gltf_material", anim["material"])
+	pointers = (
+		(offset_accessor, f"/materials/{material_index}/pbrMetallicRoughness/baseColorTexture/extensions/KHR_texture_transform/offset"),
+		(scale_accessor, f"/materials/{material_index}/pbrMetallicRoughness/baseColorTexture/extensions/KHR_texture_transform/scale"),
+	)
+
+	for output_accessor, pointer in pointers:
 		gltf_animation.samplers.append(Sampler(
 			input = input_accessor,
-			output = output_accessor
+			output = output_accessor,
+			interpolation = "STEP",
+			wrapS = None,
+			wrapT = None
 		))
 
 		gltf_animation.channels.append(AnimationChannel(
 			sampler = len(gltf_animation.samplers)-1,
 			target = AnimationChannelTarget(
-				node = node_id,
-				path = "uv",
-				extensions = { "KHR_texture_transform": { "index": anim["texture"] } }
+				path = "pointer",
+				extensions = { "KHR_animation_pointer": { "pointer": pointer } }
 			)
 		))
 
 
-# loop through list of key frames and fill in any frame gaps with new key frames
 def fill_animation_frames(transform: PTActorAnimation) -> None:
 	"""Fill in animation frames between key frames."""
+
+	# encode may run twice over the same decoded model (gltf + glb in one pass);
+	# filled frames are appended, so a second fill would corrupt the arrays
+	if getattr(transform, "_filled", False):
+		return
+	transform._filled = True
+
 	if len(transform.rotation) > 0:
 		new_frames = []
 		ptfm = None
@@ -226,80 +233,75 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 # this function is a little clunky because of the variances between the different transforms.
 # however, the transforms are similar enough that the majority of the code is duplicate for each.
 def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | list[PTAnimationRotation] | list[PTAnimationScale], name: str, has_bones: bool = False, animations: list[PTModelMetadata] | None = None) -> PTAnimationSampler:
-	"""Get the animation sampler per transform, per animation."""
+	"""
+	Get the animation values per transform. Times are resolved per clip in
+	process_animation_transform against the clip's own frame window, mirroring
+	the engine which only samples key arrays through a clip's window
+	(smObj3d.cpp::GetTmFramePos).
+	"""
 	rot = name == "rotation"
 	pos = name == "position"
 	scl = name == "scale"
 
 	if len(transforms) > 0:
 		orot = PTQuaternion()
+		composed = []
+		frames = []
+		times = []
+		values = []
 
-		input_buffer = BufferReader(len(transforms)*4)
-
-		if rot:
-			output_buffer = BufferReader(len(transforms)*4*4)
-		else:
-			output_buffer = BufferReader(len(transforms)*3*4)
+		# merged motion files can author two keys at a window boundary frame
+		# (the incoming clip's first key re-based onto the previous clip's last
+		# frame); a clip starting at that boundary samples the later window's
+		# key, so keep the last key of each duplicated frame
+		last_frame = None
 
 		for transform in transforms:
+			if last_frame is not None and transform.frame <= last_frame:
+				del values[-4 if rot else -3:]
+				if composed:
+					composed.pop()
+					# the dropped key's rotation delta must not leak into the
+					# accumulated delta quaternion, so rewind to the kept key
+					orot = composed[-1] if composed else PTQuaternion()
+				times.pop()
+				frames.pop()
+			last_frame = transform.frame
+
 			if rot:
 				orot = multiply_quaternions(orot, transform)
+				composed.append(orot)
 
-			# reset each animation's starting frame time to 0
-			sframe = 0
-			if animations:
-				for animation in animations:
-					if transform.frame / 160 >= animation.start_frame and transform.frame / 160 <= animation.end_frame:
-						sframe = animation.start_frame
-						break
-
-			input_buffer.write(c_float(transform.frame / 160 / 30 - (sframe / 30)))
+			times.append(transform.frame / 160 / 30)
+			frames.append(transform.frame)
 
 			if has_bones:
 				if rot:
-					output_buffer.write((c_float*4)(
-						 orot.x,
-						 orot.z,
-						-orot.y,
-						-orot.w
-					))
+					values += [ orot.x, orot.z, -orot.y, -orot.w ]
 				if pos:
-					output_buffer.write((c_float*3)(
+					values += [
 						 transform.x * SCALE_INCH_TO_METER,
 						 transform.z * SCALE_INCH_TO_METER,
 						-transform.y * SCALE_INCH_TO_METER
-					))
+					]
 				if scl:
-					output_buffer.write((c_float*3)(
-						transform.x,
-						transform.z,
-						transform.y
-					))
+					values += [ transform.x, transform.z, transform.y ]
 			else:
 				if rot:
-					output_buffer.write((c_float*4)(
-						-orot.x,
-						 orot.z,
-						 orot.y,
-						-orot.w
-					))
+					values += [ -orot.x, orot.z, orot.y, -orot.w ]
 				if pos:
-					output_buffer.write((c_float*3)(
+					values += [
 						-transform.x * SCALE_INCH_TO_METER,
 						 transform.z * SCALE_INCH_TO_METER,
 						 transform.y * SCALE_INCH_TO_METER
-					))
+					]
 				if scl:
-					output_buffer.write((c_float*3)(
-						transform.x,
-						transform.z,
-						transform.y
-					))
-
-		gltf.buffers.append(Buffer(
-			uri = "data:application/octet-stream;base64," + base64.b64encode(input_buffer.get_data()).decode(),
-			byteLength = len(input_buffer.get_data())
-		))
+					values += [ transform.x, transform.z, transform.y ]
+		# one shared output buffer per track: per-clip accessors slice it with
+		# byteOffset, exactly like the engine slices its key arrays per window
+		output_buffer = BufferReader(len(values)*4)
+		for v in values:
+			output_buffer.write(c_float(v))
 
 		gltf.buffers.append(Buffer(
 			uri = "data:application/octet-stream;base64," + base64.b64encode(output_buffer.get_data()).decode(),
@@ -307,67 +309,72 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 		))
 
 		return PTAnimationSampler(
-			input = len(gltf.buffers)-2,
+			frames = frames,
+			times = times,
+			values = values,
 			output = len(gltf.buffers)-1
 		)
+	return PTAnimationSampler()
 
 
-def process_animation_transform(gltf: GLTF2, transform: list, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata) -> None:
+def process_animation_transform(gltf: GLTF2, name: str, gltf_animation: Animation, node: int, sampler: PTAnimationSampler, animation: PTMotionMetadata) -> None:
 	"""Process animation transforms."""
 	rot = name == "rotation"
-	pos = name == "translation"
-	scl = name == "scale"
 
-	if len(transform) > 0:
-		sframe = animation.start_frame if animation else 0
-		eframe = animation.end_frame if animation else len(transform)-1
-		nframe = eframe - sframe + 1
+	if sampler.times:
+		# each clip samples only the keys inside its frame window
+		# (smObj3d.cpp::GetTmFramePos); slice the track to that window and make
+		# times relative to the clip's own start. Windowing uses the sampler's
+		# own frames so the time and value slices always stay in sync, even when
+		# the rotation and position tracks have different key counts.
+		if animation:
+			indices = [ i for i, fr in enumerate(sampler.frames) if animation.start_frame * 160 <= fr <= animation.end_frame * 160 ]
+			if not indices:
+				return
+			sidx, eidx = indices[0], indices[-1]
+			tbase = animation.start_frame / 30
+		else:
+			sidx, eidx = 0, len(sampler.times)-1
+			tbase = 0
 
-		fmin = 0
-		fmax = (nframe-1) / 30
+		sz = 4 if rot else 3
+		times = [ t - tbase for t in sampler.times[sidx:eidx+1] ]
+
+		times_buffer = BufferReader(len(times)*4)
+		for t in times:
+			times_buffer.write(c_float(t))
+
+		gltf.buffers.append(Buffer(
+			uri = "data:application/octet-stream;base64," + base64.b64encode(times_buffer.get_data()).decode(),
+			byteLength = len(times_buffer.get_data())
+		))
 
 		gltf.bufferViews.append(BufferView(
-			buffer = sampler.input,
-			byteOffset = sframe * 4,
-			byteLength = nframe * 4
+			buffer = len(gltf.buffers)-1,
+			byteLength = len(times_buffer.data)
 		))
 
 		gltf.accessors.append(Accessor(
 			bufferView = len(gltf.bufferViews)-1,
 			componentType = FLOAT,
-			count = nframe,
+			count = len(times),
 			type = "SCALAR",
-			min = [ fmin ],
-			max = [ fmax ]
+			min = [ min(times) ],
+			max = [ max(times) ]
 		))
 
-		if rot:
-			gltf.bufferViews.append(BufferView(
-				buffer = sampler.output,
-				byteOffset = sframe * 4 * 4,
-				byteLength = nframe * 4 * 4
-			))
+		gltf.bufferViews.append(BufferView(
+			buffer = sampler.output,
+			byteOffset = sidx * sz * 4,
+			byteLength = (eidx - sidx + 1) * sz * 4
+		))
 
-			gltf.accessors.append(Accessor(
-				bufferView = len(gltf.bufferViews)-1,
-				componentType = FLOAT,
-				count = nframe,
-				type = "VEC4"
-			))
-
-		if pos or scl:
-			gltf.bufferViews.append(BufferView(
-				buffer = sampler.output,
-				byteOffset = sframe * 4 * 3,
-				byteLength = nframe * 4 * 3
-			))
-
-			gltf.accessors.append(Accessor(
-				bufferView = len(gltf.bufferViews)-1,
-				componentType = FLOAT,
-				count = nframe,
-				type = "VEC3"
-			))
+		gltf.accessors.append(Accessor(
+			bufferView = len(gltf.bufferViews)-1,
+			componentType = FLOAT,
+			count = eidx - sidx + 1,
+			type = "VEC4" if rot else "VEC3"
+		))
 
 		gltf_animation.samplers.append(Sampler(
 			input = len(gltf.accessors)-2,
@@ -385,7 +392,7 @@ def process_animation_transform(gltf: GLTF2, transform: list, name: str, gltf_an
 		))
 
 
-def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node: int, track, animation: PTMotionMetadata | None = None) -> None:
+def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack, animation: PTMotionMetadata | None = None) -> None:
 	"""Process an animation."""
 	# NOTE: death animation has 8 more frames than listed in the inx file (for some reason)
 	# This may not need to be added back for GLTF, but may be required for ASE.
@@ -397,8 +404,40 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 	sframe = animation.start_frame if animation else None
 	eframe = animation.end_frame if animation else None
 
+	# duplicate INX motions (same clip, different event frames/item/weapon
+	# restrictions, e.g. Hest attack G/H) point at the SAME merged motion file
+	# window (motion_frame), so their tracks are the same keys of the same bones
+	# and the engine just picks between the restriction variants at runtime
+	# (SetMotionFromCode, character.cpp:2352-2455). Their glTF samplers would be
+	# identical, which the validator rejects (ANIMATION_DUPLICATE_TARGETS).
+	# The same animation name is shared across all bones of a clip and across
+	# stage objects, so only skip when this node already has channels in it;
+	# otherwise the new channels merge into the existing animation.
 	for ani in gltf.animations:
 		if ani.name == name and ani.extras["startFrame"] == sframe and ani.extras["endFrame"] == eframe:
+			if any(c.target.node == node for c in ani.channels):
+				# corpus survey: duplicate (name, window) rows always share
+				# motion_frame (38,003 groups, 0 exceptions), so the existing
+				# track already holds this key content; keep the first row's
+				# variant metadata and record the extras of later variants
+				if animation and ani.extras.get("motionFrame") != animation.motion_frame:
+					gltf_animation = Animation(name = f"{name}.{animation.motion_frame}")
+					gltf_animation.extras["startFrame"] = sframe
+					gltf_animation.extras["endFrame"] = eframe
+					gltf_animation.extras["motionFrame"] = animation.motion_frame
+					gltf_animation.extras["repeat"] = animation.repeat
+					gltf_animation.extras["keyCode"] = animation.key_code
+					gltf_animation.extras["itemCodes"] = animation.item_codes
+					gltf_animation.extras["jobCodeBit"] = animation.job_code_bit
+					gltf_animation.extras["skillCodes"] = animation.skill_codes
+					gltf_animation.extras["mapPosition"] = animation.map_position
+					gltf_animation.extras["rate"] = animation.rate
+					process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation)
+					process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation)
+					process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation)
+					if len(gltf_animation.channels) > 0:
+						gltf.animations.append(gltf_animation)
+				return
 			gltf_animation = ani
 			found = True
 			break
@@ -418,9 +457,9 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 			gltf_animation.extras["mapPosition"] = animation.map_position
 			gltf_animation.extras["rate"] = animation.rate
 
-	process_animation_transform(gltf, transform.rotation, "rotation", gltf_animation, node, track.rotation, animation)
-	process_animation_transform(gltf, transform.position, "translation", gltf_animation, node, track.position, animation)
-	process_animation_transform(gltf, transform.scale, "scale", gltf_animation, node, track.scale, animation)
+	process_animation_transform(gltf, "rotation", gltf_animation, node, track.rotation, animation)
+	process_animation_transform(gltf, "translation", gltf_animation, node, track.position, animation)
+	process_animation_transform(gltf, "scale", gltf_animation, node, track.scale, animation)
 
 	if not found and len(gltf_animation.channels) > 0:
 		gltf.animations.append(gltf_animation)
@@ -429,7 +468,7 @@ def process_animation(gltf: GLTF2, transform: PTObjectTransform, name: str, node
 """ PRIMITIVES """
 
 
-def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None, overlay_material_ids: set[int] | None = None) -> list[dict[str,]]:
+def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None, overlay_material_ids: set[int] | None = None, has_bones: bool = False) -> list[dict[str,]]:
 	"""Create a list of untangled primitives."""
 	prims = []
 	if not object.texture_coords or not object.vertices or not object.faces:
@@ -453,8 +492,8 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 			"texcoord1buffer": BufferReader(vert_words*2),
 			"texcoord0": True,
 			"texcoord1": True,
-			"joints0buffer": BufferReader(vert_words),
-			"weights0buffer": BufferReader(vert_words*4)
+			"joints0buffer": BufferReader(vert_words) if has_bones else None,
+			"weights0buffer": BufferReader(vert_words*4) if has_bones else None
 		}
 
 		# the engine redraws these faces with the second stage texture alone in
@@ -607,7 +646,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				prim["texcoord1"] = False
 
 			# JOINTS_0
-			if hasattr(object, "physique") and object.physique:
+			if prim["joints0buffer"] and hasattr(object, "physique") and object.physique:
 				for j in range(3):
 					face = iface[1]
 					bone = object.physique[face.vertices[j]]
@@ -696,7 +735,7 @@ def write_anim_atlas(path: Path, paths: list[Path], rects: list[list[float]], si
 
 
 def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> None:
-	"""Encodes the interal model structure to a GLTF file and writes it to disk."""
+	"""Encodes the interal model structure to a GLTF/GLB file and writes it to disk."""
 	# invalid model data
 	if not model.materials and not model.objects:
 		print(f"Model '{model.filename}' does not contain any data.")
@@ -710,6 +749,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	# if a model has bones, we add bone nodes first to make it a bit easier to do
 	# the indexing
 	if hasattr(model, "bones") and model.bones:
+		# encode may run twice over the same decoded model (gltf + glb in one
+		# pass), so the link state has to be reset to stay idempotent
+		for bone in model.bones:
+			bone._children = []
+
 		# Priston Tale's model bones each link to their parent bone, but GLTF wants
 		# a list of children so we have to flip how bones are linked together.
 		for i, bone in enumerate(model.bones):
@@ -721,15 +765,19 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 						parent._children.append(i)
 						break
 
-		# transform vertices to bone space
-		for object in model.objects:
-			for v, bonename in enumerate(object.physique):
-				for bone in model.bones:
-					if bonename == bone.name:
-						np_m = to_np_matrix(bone.transform)
-						np_v = to_np_vector(object.vertices[v])
-						object.vertices[v] = from_np_vector(np_v @ np_m)
-						break
+		# transform vertices to bone space (once; the vertices of an already
+		# encoded model are already in bone space and the transform is not
+		# idempotent)
+		if not getattr(model, "_bone_space", False):
+			for object in model.objects:
+				for v, bonename in enumerate(object.physique):
+					for bone in model.bones:
+						if bonename == bone.name:
+							np_m = to_np_matrix(bone.transform)
+							np_v = to_np_vector(object.vertices[v])
+							object.vertices[v] = from_np_vector(np_v @ np_m)
+							break
+			model._bone_space = True
 
 		skin = Skin(name = "Armature")
 		inverse_buffer = BufferReader(sizeof(smFMATRIX)*len(model.bones))
@@ -843,7 +891,8 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			else:
 				uri = root + ext
 
-			texpath = os.path.join(fs_dir, uri)
+			# '#' in a filename is a URI fragment delimiter (golem#2.png)
+			texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
 
 			if os.path.isfile(texpath):
 				frames.append(Path(texpath))
@@ -873,7 +922,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	# base pose
 	for anim in anim_atlas:
 		gltf.images.append(Image(
-			uri = anim["image"]
+			uri = anim["image"].replace("#", "%23")
 		))
 
 		gltf.textures.append(Texture(
@@ -881,9 +930,12 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 		))
 
 		anim["texture"] = len(gltf.textures)-1
-		rect = anim["rects"][anim["frame0"] % anim["count"]]
-		anim["offset"] = [ rect[0], rect[1] ]
-		anim["scale"] = [ rect[2], rect[3] ]
+		# the renderer samples cells from the global clock alone
+		# (RendStatTime >> Shift_FrameSpeed) & FrameMask (smRend3d.cpp:3852-3854);
+		# the serialized MatFrame sync flag is dead code (ReSwapMaterial returns
+		# early, smTexture.cpp:1223-1226), so the rest pose is frame 0
+		anim["offset"] = [ anim["rects"][0][0], anim["rects"][0][1] ]
+		anim["scale"] = [ anim["rects"][0][2], anim["rects"][0][3] ]
 
 	material_index_map = {}
 	for i, material in enumerate(model.materials):
@@ -919,11 +971,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				else:
 					uri = root + ext
 
-				texpath = os.path.join(fs_dir, uri)
+				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri
+						uri = uri.replace("#", "%23")
 					))
 
 					gltf.textures.append(Texture(
@@ -938,6 +990,14 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				# animated materials show frame `frame0` at rest (the engine only
 				# samples the anim list, smRend3d.cpp:3852-3854)
 				for anim in (a for a in anim_atlas if a["material"] == i and a["texture"] is not None):
+					if "KHR_texture_transform" not in gltf.extensionsUsed:
+						gltf.extensionsUsed.append("KHR_texture_transform")
+
+					# overlay materials are inserted before this point, so the gltf
+					# material index can drift from the model's; uv animations need
+					# the gltf index for their document pointers
+					anim["gltf_material"] = material_index_map[i]
+
 					mtl.pbrMetallicRoughness = PbrMetallicRoughness(
 						baseColorTexture = TextureInfo(
 							index = anim["texture"],
@@ -960,11 +1020,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				else:
 					uri = root + ext
 
-				texpath = os.path.join(fs_dir, uri)
+				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri
+						uri = uri.replace("#", "%23")
 					))
 
 					gltf.textures.append(Texture(
@@ -1010,11 +1070,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				else:
 					uri = root + ext
 
-				texpath = os.path.join(fs_dir, uri)
+				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri
+						uri = uri.replace("#", "%23")
 					))
 
 					gltf.textures.append(Texture(
@@ -1035,11 +1095,11 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				else:
 					uri = (root + ext).lower()
 
-				texpath = os.path.join(fs_dir, uri)
+				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri
+						uri = uri.replace("#", "%23")
 					))
 
 					gltf.textures.append(Texture(
@@ -1056,7 +1116,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	anim_ids = { a["material"] for a in anim_atlas }
 
 	for object in model.objects:
-		untangled_prims = make_primitives(object, gltf.nodes, anim_ids, overlay_material_ids)
+		untangled_prims = make_primitives(object, gltf.nodes, anim_ids, overlay_material_ids, bool(getattr(model, "bones", None)))
 		prim_pass = []
 		prim_col = []
 		prim_colonly = []
@@ -1349,7 +1409,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 			# nodes either have a local transform or a skin, never both
-			if hasattr(object, "physique") and object.physique:
+			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
 			else:
 				node.translation = [ position.x, position.y, position.z ]
@@ -1372,7 +1432,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 			# nodes either have a local transform or a skin, never both
-			if hasattr(object, "physique") and object.physique:
+			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
 			else:
 				node.translation = [ position.x, position.y, position.z ]
@@ -1394,7 +1454,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 			# nodes either have a local transform or a skin, never both
-			if hasattr(object, "physique") and object.physique:
+			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
 			else:
 				node.translation = [ position.x, position.y, position.z ]
@@ -1416,7 +1476,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 			# nodes either have a local transform or a skin, never both
-			if hasattr(object, "physique") and object.physique:
+			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
 			else:
 				node.translation = [ position.x, position.y, position.z ]
@@ -1433,7 +1493,12 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			track.rotation = get_animation_track(gltf, object.animation.rotation, "rotation")
 			track.scale = get_animation_track(gltf, object.animation.scale, "scale")
 
-			process_animation(gltf, object.animation, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track)
+			# animated TRS has no effect on a skinned mesh node (the skin's joint
+			# transforms drive it), and the validator rejects the channel target
+			if getattr(object, "physique", None):
+				continue
+
+			process_animation(gltf, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track)
 
 	""" ANIMATIONS """
 
@@ -1451,7 +1516,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 				if args.godot and animation.repeat:
 					name += "-loop" # godot: keeps the imported animation looping; repeat stays in extras for everyone
 
-				process_animation(gltf, bone.animation, name, bone._id, track, animation)
+				process_animation(gltf, name, bone._id, track, animation)
 
 		# facial (talk) animations live in the same smb frame space as the regular
 		# motions but are separate frame ranges, so they get their own sampler pass
@@ -1469,7 +1534,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 					if args.godot and animation.repeat:
 						name += "-loop"
 
-					process_animation(gltf, bone.animation, name, bone._id, track, animation)
+					process_animation(gltf, name, bone._id, track, animation)
 
 	""" TEXTURE ANIMATIONS """
 
@@ -1496,11 +1561,15 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			)
 
 			name = f"light_{i}{suffix}"
+			# engine colors are byte values that may exceed 255 (overbright, e.g.
+			# dun-1 r=382); glTF clamps color to [0,1] so the overbright headroom
+			# moves into intensity (color normalized to the max channel instead)
+			peak = max(light.color.r, light.color.g, light.color.b, 1e-6)
 			punctual = {
 				"name": name,
 				"type": "point",
-				"color": [ light.color.r, light.color.g, light.color.b ],
-				"intensity": 1.0
+				"color": [ light.color.r / peak, light.color.g / peak, light.color.b / peak ],
+				"intensity": peak
 			}
 
 			if light.range > 0:
@@ -1531,11 +1600,37 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 	""" SCENE """
 
 	scene = Scene()
-	for i, node in enumerate(gltf.nodes):
-		# armature will always start at 0
-		# everything after the joint nodes is also a root
-		if i == 0 or i >= (len(model.bones) if hasattr(model, "bones") else 0):
-			scene.nodes.append(i)
+
+	if hasattr(model, "bones") and model.bones:
+		# a synthetic identity root keeps the engine's flat hierarchy (joint roots
+		# and sibling weapon bones like 'Bip01 sword') while giving every skin's
+		# joints one common scene ancestor, which glTF requires; skinned mesh
+		# nodes stay scene roots because parent transforms would not affect them.
+		# Marked as the skin's skeleton: without it the root node inserts an
+		# unlisted level between the dummy import root and Bip01, which breaks
+		# Blender's inverse-bind-matrix bind pose guess and rotates actors 180°
+		root = Node(name = "root")
+		gltf.nodes.append(root)
+		root_index = len(gltf.nodes)-1
+		skin.skeleton = root_index
+		parented = { c for n in gltf.nodes for c in (n.children or []) }
+		# a skinned mesh node must stay a scene root (parent transforms would not
+		# affect it), everything else joins the synthetic root
+		root.children = [
+			i for i in range(root_index)
+			if i not in parented and not (gltf.nodes[i].mesh is not None and gltf.nodes[i].skin is not None)
+		]
+		scene.nodes.append(root_index)
+		scene.nodes += [
+			i for i in range(root_index)
+			if i not in parented and gltf.nodes[i].mesh is not None and gltf.nodes[i].skin is not None
+		]
+	else:
+		for i, node in enumerate(gltf.nodes):
+			# armature will always start at 0
+			# everything after the joint nodes is also a root
+			if i == 0 or i >= (len(model.bones) if hasattr(model, "bones") else 0):
+				scene.nodes.append(i)
 	gltf.scenes.append(scene)
 
 	""" MODEL METADATA """
@@ -1561,6 +1656,4 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 			gltf.asset.extras = extras
 
 	path.parent.mkdir(exist_ok=True, parents=True)
-	# pygltflib's save() resets self.asset with a fresh default Asset unless one
-	# is passed, which would drop the asset extras above.
 	gltf.save(path, gltf.asset)
