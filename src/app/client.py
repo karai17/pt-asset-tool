@@ -98,7 +98,8 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
 			gltf.encode(gltfpath, fdata, args)
-		elif args.glb:
+
+		if args.glb:
 			root, ext = os.path.splitext(outpath)
 			glbpath = Path(root + ".glb")
 			gltf.encode(glbpath, fdata, args)
@@ -148,7 +149,8 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 			root, ext = os.path.splitext(outpath)
 			gltfpath = Path(root + ".gltf")
 			gltf.encode(gltfpath, fdata, args)
-		elif args.glb:
+
+		if args.glb:
 			root, ext = os.path.splitext(outpath)
 			glbpath = Path(root + ".glb")
 			gltf.encode(glbpath, fdata, args)
