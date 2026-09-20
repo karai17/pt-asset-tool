@@ -79,7 +79,7 @@ def encode_uv_animation(gltf: GLTF2, anim: dict, node_ids: list[int]) -> None:
 		times.write(c_float(k * (1 << anim["speed"]) / 1000))
 		rect = anim["rects"][k]
 		values.write((c_float*6)(
-			rect[0], 1 - rect[1] - rect[3],
+			rect[0], rect[1],
 			rect[2], rect[3],
 			0, 0
 		))
@@ -537,18 +537,20 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				uv0 = tc.uv_sets[0] if len(tc.uv_sets) > 0 else [PTTextureVertex()] * 3
 				uv1 = tc.uv_sets[1] if len(tc.uv_sets) > 1 else [PTTextureVertex()] * 3
 
+				# texlink v is exported verbatim: the engine samples the stored
+				# value directly (smRead3d.cpp:1548 actors, :2646 stages)
 				prim["texcoord0buffer"].write((c_float*6)(
-					uv0[0].u, 1-uv0[0].v,
-					uv0[1].u, 1-uv0[1].v,
-					uv0[2].u, 1-uv0[2].v
+					uv0[0].u, uv0[0].v,
+					uv0[1].u, uv0[1].v,
+					uv0[2].u, uv0[2].v
 				))
 
 				# TEXCOORD_1: secondary texture stage UVs (lightmaps over
 				# diffuse in the *LM_ dungeon stages) ride the NextTex chain
 				prim["texcoord1buffer"].write((c_float*6)(
-					uv1[0].u, 1-uv1[0].v,
-					uv1[1].u, 1-uv1[1].v,
-					uv1[2].u, 1-uv1[2].v
+					uv1[0].u, uv1[0].v,
+					uv1[1].u, uv1[1].v,
+					uv1[2].u, uv1[2].v
 				))
 
 				if len(tc.uv_sets) == 0:
@@ -565,9 +567,9 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				# overlay material samples slot 1
 				if overlay_prim and len(tc.uv_sets) > 1:
 					uvs = [
-						uv1[0].u, 1-uv1[0].v,
-						uv1[1].u, 1-uv1[1].v,
-						uv1[2].u, 1-uv1[2].v
+						uv1[0].u, uv1[0].v,
+						uv1[1].u, uv1[1].v,
+						uv1[2].u, uv1[2].v
 					]
 					overlay_prim["texcoord0buffer"].write((c_float*6)(*uvs))
 					overlay_prim["texcoord1buffer"].write((c_float*6)(*uvs))
@@ -880,7 +882,7 @@ def encode(path: Path, model: PTActorModel | PTStageModel, args: Namespace) -> N
 
 		anim["texture"] = len(gltf.textures)-1
 		rect = anim["rects"][anim["frame0"] % anim["count"]]
-		anim["offset"] = [ rect[0], 1 - rect[1] - rect[3] ]
+		anim["offset"] = [ rect[0], rect[1] ]
 		anim["scale"] = [ rect[2], rect[3] ]
 
 	material_index_map = {}

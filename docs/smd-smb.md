@@ -343,7 +343,7 @@ Total size varies from ~30 KB to ~2 MB per stage.
 | Offset | Size | Field | Type | Notes |
 | ---: | ---: | --- | --- | --- |
 | 0 | 12 | `u` | `float[3]` | U for corners a, b, c |
-| 12 | 12 | `v` | `float[3]` | V for corners a, b, c. Actor: `1 - v`; stage: `-v` |
+| 12 | 12 | `v` | `float[3]` | V for corners a, b, c. Actor stored as `1-fv` at import (smRead3d.cpp:1548); stage stored verbatim (smRead3d.cpp:2646) |
 | 24 | 4 | `hTexture_ptr` | `uint32` | Stale texture handle |
 | 28 | 4 | `NextTex_ptr` | `uint32` | Stale pointer to the next link of multi-texture faces; loader converts pointer differences to element indices |
 
@@ -636,8 +636,12 @@ because real files depend on them.
 - Actor vertices decode as-is (`x, y, z`).
 - Stage vertices decode with Y and Z swapped (`x, z, y`); reference:
 	`smRead3d.cpp::smSTAGE3D_ReadASE_GEOMOBJECT`.
-- Texture V coordinates are flipped: actor `v' = 1 - v` (file `v` is in
-	0..1), stage `v' = -v` (file `v` is in -4..0, lightmap tiles go negative).
+- Texture V coordinates are kept verbatim: actors store `1-fv` (the importer
+	negates 3ds Max's bottom-up V, smRead3d.cpp:1548), stages store `v`
+	as-authored (smRead3d.cpp:2646; lightmap atlas tiles are negative). The
+	glTF exporter writes the stored value unchanged - the engine flips BMP
+	rows top-first at load (DrawSurfaceFromDib, smTexture.cpp:2744), so its
+	`v = 0` is the image top, same as glTF. See docs/texlink.md §5.
 - Vertex colors are BGRA in the file (see quirk 7). Averaging in the original
 	exporter makes them lossy; they are surfaced as-is for manual review
 	(`decode_stage_vertices`).

@@ -195,24 +195,32 @@ reading, which is what the next function (physique or animation keys) expects.
 
 ## 5. UV convention quirks
 
-The two importers store V differently, and the decoders invert both:
+The two importers store V differently, and the decoders keep both verbatim:
 
 - **Stage importer**: `AddVertex` maps ASE `(x,y,z)` to `(x,z,y)` and stores
-  `v` as-authored (which tiles: stage diffuse UVs routinely run to ±10).
-  The decoder negates: `v_stored = -v`, so exported UV = `-v`.
+  `v` as-authored with no flip (smRead3d.cpp:2646) - which tiles: stage
+  diffuse UVs routinely run to ±10, and dungeon lightmap atlas coords are
+  stored negative (v ∈ [−1, 0], sampled through D3D wrap).
 - **Actor importer**: `AddTexLink` receives `1-fv` at import
-  (smRead3d.cpp:1548). The decoder undoes it: `v = 1 - v_stored`.
+  (smRead3d.cpp:1548), converting 3ds Max's bottom-up V to the engine's
+  top-down convention.
 
-Both decoders write PT space UVs into the internal model; the glTF exporter
-then applies the glTF-mandated `1 - v` flip once more on the way out
-(glTF's UV origin is top-left; D3D's is bottom-left).
+Both decoders store the file value as-is, and the glTF exporter writes it
+verbatim. This is source-accurate: `DrawSurfaceFromDib` (smTexture.cpp
+2744-2772) writes DIB row 0 - the bottom scanline of a BMP - to surface
+offset `pitch*(height-1)` and walks upward, so the engine flips textures
+top-row-first and D3D's `v = 0` samples the image top, the same origin glTF
+uses. The engine samples the stored value directly
+(smRend3d.cpp SetD3DRendBuff), so exporting it verbatim reproduces the
+engine's sampling exactly, under CLAMP as well as REPEAT. (Earlier
+revisions negated stage `v` in the decoder and flipped `1 - v` in the
+exporter, exporting `1 + v` - invisible under REPEAT, since `1 + x ≡ x`
+mod 1, but wrong under CLAMP and not round-trippable.)
 
-For the dungeon lightmaps this composes to exactly the authored atlas
-coordinates: stored lightmap `v` comes out negated in [−1, 0], the internal
-model holds −(stored v) ∈ [0, 1], and the exporter's final `1 - v` flip maps
-it back to the [0, 1] atlas range. Verified over all 100,317 lightmapped
-vertices of dun-1: exported `TEXCOORD_1` spans [0.003, 0.997] on both axes,
-exactly the lightmap atlas footprint.
+Dungeon lightmap atlas coords export verbatim in [−1, 0]; under the default
+REPEAT wrap this samples the same texels as the engine (`−a ≡ 1 − a`
+mod 1). Verified over all 100,317 lightmapped vertices of dun-1: exported
+`TEXCOORD_0`/`TEXCOORD_1` ranges equal the raw file ranges exactly.
 
 ## 6. How this project decodes it now
 
@@ -235,7 +243,7 @@ exactly the lightmap atlas footprint.
 `src/pt/encode/gltf.py`:
 
 - `make_primitives` writes `uv_sets[0]` to `TEXCOORD_0` and `uv_sets[1]` to
-  `TEXCOORD_1` (each flipped `1 - v`).
+  `TEXCOORD_1` verbatim (see §5).
 - Lightmap-carrying materials export the lightmap as `occlusionTexture` with
   `texCoord: 1` - the closest standard-glTF stand-in for a baked
   light-add pass; consumers wanting the original look add the map over the

@@ -159,6 +159,8 @@ def decode_stage_faces(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> lis
 # texture stages (lightmaps over diffuse in the *LM_ dungeon stages). The
 # render loop walks the chain once per texture stage with the chain index as
 # the D3D texcoord index (smRend3d.cpp:3216-3250 SetD3DRendBuff).
+# unlike actors, the stage importer stores v verbatim: ReadASE_STAGEOBJECT
+# writes ftpoint[cnt2].v = fv with no 1-fv flip (smRead3d.cpp:2646).
 def decode_texlink_chain(texlinks: list, base: int, tex_index: int) -> list:
 	sets = []
 	seen = set()
@@ -202,9 +204,9 @@ def decode_stage_texture_coords(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3
 			tex_index = int((sm_face.lpTexLink_ptr - ptr) / sizeof(smTEXLINK))
 			uv_sets = [
 				[
-					PTTextureVertex(u=sm_texlink.u[0], v=-sm_texlink.v[0]),
-					PTTextureVertex(u=sm_texlink.u[1], v=-sm_texlink.v[1]),
-					PTTextureVertex(u=sm_texlink.u[2], v=-sm_texlink.v[2])
+					PTTextureVertex(u=sm_texlink.u[0], v=sm_texlink.v[0]),
+					PTTextureVertex(u=sm_texlink.u[1], v=sm_texlink.v[1]),
+					PTTextureVertex(u=sm_texlink.u[2], v=sm_texlink.v[2])
 				]
 				for sm_texlink in decode_texlink_chain(texlinks, ptr, tex_index)
 			]
@@ -452,7 +454,9 @@ def decode_actor_faces(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list
 # appends and links Face[n].lpTexLink = &TexLink[nTexLink] (smObj3d.cpp:590-618).
 # Faces with multiple textures chain extra links via NextTex
 # (smObj3d.cpp:613-625); walk them into extra uv_sets.
-# UV v was stored as 1-fv at import (smRead3d.cpp:1548), so 1-v undoes it.
+# the actor importer stores v as 1-fv at import (smRead3d.cpp:1548), the
+# stage importer stores it verbatim (smRead3d.cpp:2646); both decoders keep
+# the stored value as-is and the glTF encoder writes it verbatim too
 def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTObjectTexture_Coord]:
 	texture_coords = []
 
@@ -479,9 +483,9 @@ def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D
 			tex_index = int((sm_face.lpTexLink_ptr - ptr) / sizeof(smTEXLINK))
 			uv_sets = [
 				[
-					PTTextureVertex(u=sm_texlink.u[0], v=1-sm_texlink.v[0]),
-					PTTextureVertex(u=sm_texlink.u[1], v=1-sm_texlink.v[1]),
-					PTTextureVertex(u=sm_texlink.u[2], v=1-sm_texlink.v[2])
+					PTTextureVertex(u=sm_texlink.u[0], v=sm_texlink.v[0]),
+					PTTextureVertex(u=sm_texlink.u[1], v=sm_texlink.v[1]),
+					PTTextureVertex(u=sm_texlink.u[2], v=sm_texlink.v[2])
 				]
 				for sm_texlink in decode_texlink_chain(texlinks, ptr, tex_index)
 			]
