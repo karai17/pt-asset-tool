@@ -82,6 +82,7 @@ class PTTextureMap:
 	lightmap_path: str | None = None
 	second_has_alpha: bool = False
 	anim_frames: list[str] = field(default_factory=list)
+	anim_alphas: list[str] = field(default_factory=list)
 
 
 @dataclass

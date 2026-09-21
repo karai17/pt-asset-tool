@@ -746,12 +746,27 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 				decode_string(sm_texpaths[(sm_material.TextureCounter + k) * 2])
 				for k in range(sm_material.AnimTexCounter)
 			]
+			material.texture_map.anim_alphas = [
+				decode_string(sm_texpaths[(sm_material.TextureCounter + k) * 2 + 1])
+				for k in range(sm_material.AnimTexCounter)
+			]
 
-		# MapOpacity != 0 means *MAP_OPACITY in the ASE; the engine loads the
-		# diffuse bitmap with the opacity map as its NameA (smTexture.cpp:874-912)
-		if len(texpaths) > 0 and sm_material.MapOpacity == 1:
-			material.texture_map.opacity_name = ""
-			material.texture_map.opacity_path = texpaths[0] # opacity uses the diffuse texture
+		# The engine keys alpha loading on the blob's NameA, not the ASE
+		# *MAP_OPACITY flag (smMATERIAL_GROUP::LoadFile calls Add(szName, szNameA)
+		# whenever NameA is non-empty, smTexture.cpp:738-764; the *MAP_OPACITY
+		# branch only decides which paths feed Add, smTexture.cpp:874-912).
+		# opacity_path is the alpha source the engine would read
+		# (LoadDibSurfaceAlpha, smTexture.cpp:2247): a distinct NameA is a
+		# separate alpha bitmap, an empty or duplicate NameA points at the
+		# diffuse itself — which for a 24-bit file means luminance-as-alpha,
+		# ((r+g+b)/3), and for a 32-bit file its own alpha channel. An empty
+		# NameA (opacity_name == "") means the engine never composites
+		if len(texpaths) > 0 and len(texalpha) > 0:
+			material.texture_map.opacity_name = texalpha[0]
+			if texalpha[0] and texalpha[0].lower() != texpaths[0].lower():
+				material.texture_map.opacity_path = texalpha[0]
+			else:
+				material.texture_map.opacity_path = texpaths[0]
 	return material
 
 

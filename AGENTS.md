@@ -70,6 +70,5 @@ There is a `src/pt/buffer.py` file with a `BufferReader` class. This class is us
 ## Coding Style
 
 - Use idiomatic Python conventions when writing Python code
-- Do not add comments
-- If a comment is absolutely necessary to explain something that the code itself cannot explain, make sure it's as minimal as possible
+- Do not add comments to code unless there is a direct reference to the source; additional prose should be no more than a simple one-liner
 - Do not use object oriented programming conventions, this code base is procedural and functional

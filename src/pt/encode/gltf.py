@@ -1042,8 +1042,9 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			material.texture_map.selfillum_path,
 			*material.texture_map.anim_frames,
 		]
-		if material.texture_map.opacity_path or any(
-			path is not None and path.lower().endswith(".tga") for path in alpha_textures
+		if (material.texture_map.opacity_name
+			or any(material.texture_map.anim_alphas)
+			or any(path is not None and path.lower().endswith(".tga") for path in alpha_textures)
 		):
 			if material.transparency > 0.2:
 				mtl.alphaMode = "BLEND"

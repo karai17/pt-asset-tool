@@ -26,6 +26,77 @@ def _encode_image(outpath: str, fdata: bytes, args: Namespace) -> None:
 			f.write(fdata)
 
 
+def _resolve_output_png(args: Namespace, model_path: str) -> Path | None:
+	"""Locates the PNG the texture stage wrote for a model-referenced texture.
+	Texture files mirror their input-tree location under args.output with a
+	lowercased .png name, while model texture paths are the engine's own
+	(possibly differently-cased) strings - the engine resolved them
+	case-insensitively on Windows, so the lookup does too, falling back to a
+	flat output root for fixture layouts."""
+	rel = (os.path.splitext(model_path.replace("\\", os.path.sep))[0] + ".png")
+	candidate = Path(os.path.join(args.output, rel))
+	if candidate.is_file():
+		return candidate
+
+	segs = Path(rel).parts
+	cur = Path(args.output)
+	for seg in segs[:-1]:
+		match = [d for d in cur.iterdir() if d.is_dir() and d.name.lower() == seg.lower()]
+		if not match:
+			cur = None
+			break
+		cur = match[0]
+	if cur is not None:
+		match = [f for f in cur.iterdir() if f.is_file() and f.name.lower() == segs[-1].lower()]
+		if match:
+			return match[0]
+
+	for f in Path(args.output).iterdir():
+		if f.is_file() and f.name.lower() == segs[-1].lower():
+			return f
+	return None
+
+
+def _compose_model_opacity(fdata, args: Namespace) -> None:
+	"""Pre-computes the PNGs the engine would build at texture load time for
+	materials whose diffuse runs through LoadDibSurfaceAlpha (smTexture.cpp:
+	2247): the diffuse composited with its *MAP_OPACITY bitmap as the alpha
+	channel. png.compose encodes the engine's own graceful degradation (a
+	32bpp diffuse keeps its own alpha, a missing/wrong-sized alpha file stays
+	opaque), so only diffuse-derivable outputs are rewritten - over the
+	diffuse's own name, because the glTF encoder binds textures by name and
+	must not care whether the PNG's alpha is authored or composited. The
+	source .bmp/.tga outputs stay untouched for ASE round-tripping."""
+	if not args.png or not fdata.materials:
+		return
+
+	for material in fdata.materials:
+		tm = material.texture_map
+		if not tm or not tm.opacity_name:
+			continue
+
+		pairs = []
+		if tm.diffuse_path:
+			pairs.append((tm.diffuse_path, tm.opacity_path))
+		for k, frame in enumerate(tm.anim_frames or []):
+			alpha = tm.anim_alphas[k] if k < len(tm.anim_alphas or []) and tm.anim_alphas[k] else frame
+			pairs.append((frame, alpha))
+
+		for diffuse, alpha in pairs:
+			png_out = _resolve_output_png(args, diffuse)
+			if png_out is None:
+				continue
+
+			if alpha and alpha.lower() != diffuse.lower():
+				src = _resolve_output_png(args, alpha)
+				if src is None:
+					continue
+			else:
+				src = png_out
+
+			png.compose(png_out, src, png_out)
+
+
 def _referenced_models(inxbucket: list, args: Namespace) -> set[str]:
 	"""Collect the SMD files referenced by the INX bucket via szModelFile."""
 	referenced = set()
@@ -134,6 +205,7 @@ def _decode_inx_file(job: tuple) -> None:
 
 	if args.json:
 		json.encode(Path(root + ".json"), fdata)
+	_compose_model_opacity(fdata, args)
 	if args.gltf or args.glb:
 		doc = gltf.build(fdata, args, Path(outpath))
 
@@ -169,6 +241,7 @@ def _decode_smd_file(job: tuple) -> None:
 
 	if args.json:
 		json.encode(Path(root + ".json"), fdata)
+	_compose_model_opacity(fdata, args)
 	if args.gltf or args.glb:
 		doc = gltf.build(fdata, args, Path(outpath))
 
