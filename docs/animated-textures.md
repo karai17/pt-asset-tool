@@ -153,3 +153,8 @@ stages**: `Field/dungeon` (all 79 files), `Field/SeaA` (12),
 `Field/AncientW`, `Field/Mine`, `Field/Slab`, `Field/swamp`. No actor has a
 baked lightmap. (`occlusionTexture` with `texCoord = 0` on actors/items is
 the *opacity* map export, not a lightmap.)
+
+The `Field/Mine`, `Field/endless`, `Field/LandofNurwn` and `Field/Slab` files
+also carry three-texture materials (diffuse + glow + `*LightingMap.*`), where
+the lightmap rides the third chain link and exports as `occlusionTexture`
+with `texCoord = 2` (see `docs/texlink.md` §2).

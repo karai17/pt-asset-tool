@@ -225,12 +225,31 @@ animated-texture paths are not decoded.
 | Pair index | Role |
 | --- | --- |
 | 0 | Diffuse texture (map name from `TextureStageState[0]` / `TextureFormState[0]`) |
-| 1 | Self-illumination texture (map name from `TextureStageState[1]` / `TextureFormState[1]`), only when exactly 2 paths |
+| 1 | Second texture: baked `*LightingMap.*` in the dungeon stages, glow/overlay elsewhere (map name from `TextureStageState[1]` / `TextureFormState[1]`) |
+| 2 | Third texture: the `*LightingMap.*` of a glow + lightmap pair (`TextureCounter == 3`; mine-1, dun-7/8/9, LandofNurwn, Slab, all `dun-5-ani-*` whose floor faces carry a full three-link chain). Map name from `TextureStageState[2]` / `TextureFormState[2]`. The engine supports 8 stages (`smTexture[8]`), but no shipped file uses more than 3 |
+
+Engine background for the three-stage case: `SetD3DRendState`
+(`smRend3d.cpp:3778-3789`) chains every stage with its per-stage COLOROP
+(default `D3DTOP_MODULATE`), each stage sampling its own texcoord index; the
+`*LM_` stage importer authors the extra map as an afterthought link from a
+separate `*MESH_MAPPINGCHANNEL` UV channel (`smRead3d.cpp:2625-2650` and the
+`bLightMap` block at `:2664-2708`), so the third stage's UVs are independently
+authored data.
 
 If `MapOpacity == 1`, the diffuse texture doubles as the opacity map.
 Map names are reconstructed from script/blend flag bits
 (`STAGE_SCRIPT`, `FORM_SCRIPT`, `MTL_FORM_SCRIPT`, `MTL_FORM_BLEND` in
 `src/pt/const.py`; reference: `decode_material_name`, `decode_texture_map_name`).
+
+`BlendType` is the material's D3D render-state selector
+(`smType.h:652-658`; switch in `SetD3DRendState`, `smRend3d.cpp:3892-3931`):
+NONE / ALPHA (srcalpha,invsrcalpha) / COLOR (srccolor,invsrcolor) / SHADOW
+/ LAMP (srcalpha,one — additive by texture alpha) / ADDCOLOR (srccolor,one
+— pure additive) / INVSHADOW. The glTF encoder carries it as material
+`extras.blendType` (omitted for 0/NONE, the corpus default); only ALPHA is
+expressible natively, via `alphaMode: BLEND`. Shipped SMD corpus counts:
+ALPHA 180,791 · LAMP 1,326 · COLOR 71 · ADDCOLOR 3, no SHADOW / INVSHADOW
+/ NONE in use.
 
 #### MeshState semantics
 

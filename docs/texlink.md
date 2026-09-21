@@ -96,14 +96,24 @@ combined on top of it.
 The chain depth equals the number of texture stages the face participates in.
 Histograms from shipped files:
 
-| file                    | 0 links | 1 link | 2 links |
-|-------------------------|---------|--------|---------|
-| `dun-1.smd` (stage)     | 12      | 1,358  | 33,439  |
-| `Dun-6a.smd` (stage)    | 0       | 1,242  | 61,421  |
-| `ruin-2.smd` (stage)    | 93      | 60,350 | 0       |
-| `MN-012.smd` (actor)    | 0       | 1,144  | 0       |
+| file                    | 0 links | 1 link | 2 links | 3 links |
+|-------------------------|---------|--------|---------|---------|
+| `dun-1.smd` (stage)     | 12      | 1,358  | 33,439  | 0       |
+| `Dun-6a.smd` (stage)    | 0       | 1,242  | 61,421  | 0       |
+| `ruin-2.smd` (stage)    | 93      | 60,350 | 0       | 0       |
+| `MN-012.smd` (actor)    | 0       | 1,144  | 0       | 0       |
+| `mine-1.smd` (stage)    | –       | –      | –       | 5,396   |
 
-Nothing in shipped data ever exceeds 2 (the engine's "max 8" is defensive).
+Nothing in shipped data ever exceeds 3 (the engine's "max 8" is defensive).
+Three-link faces belong to `TextureCounter == 3` materials — the glow +
+`*LightingMap.*` pairs of `mine-1`, `dun-7`/`8`/`9`, `LandofNurwn`, `Slab`
+(`field\\Mine\\Mine_P_ore0N.bmp` + `mine_ice_j_mineral-2.bmp` +
+`*LightingMap.bmp`, and the `d-ball.bmp` + `line_light03.bmp` +
+`*LightingMap.*` triple). The map-file tiles (`dun-5-ani-*`) declare these
+materials too, but only a fraction of their faces ever reference them; the
+bulk of the Dun-5f tiles keep the standard two-link `diffuse + LightingMap`
+chain. The third link's UVs are the lighting-map atlas cell — authored
+independently of the diffuse (see `docs/smd-smb.md`, material path blob).
 
 ## 3. The pointer fixup: why the on-disk "pointers" are garbage
 
@@ -238,16 +248,19 @@ mod 1). Verified over all 100,317 lightmapped vertices of dun-1: exported
   `lightingmap` become `texture_map.lightmap_path`, everything else stays
   `selfillum_path` (actor glow maps) and records `second_has_alpha` when the
   stage-1 texture loads with alpha (`.tga`, or a `NameA` companion in the
-  material blob).
+  material blob). Paths beyond stage 1 become `thirdstage_name`/`thirdstage_path`
+  (the glow + `*LightingMap.*` pairs; see §2).
 
 `src/pt/encode/gltf.py`:
 
 - `make_primitives` writes `uv_sets[0]` to `TEXCOORD_0` and `uv_sets[1]` to
-  `TEXCOORD_1` verbatim (see §5).
+  `TEXCOORD_1` verbatim (see §5). Primitives whose material carries a third
+  texture stage also write `uv_sets[2]` to `TEXCOORD_2`.
 - Lightmap-carrying materials export the lightmap as `occlusionTexture` with
   `texCoord: 1` - the closest standard-glTF stand-in for a baked
   light-add pass; consumers wanting the original look add the map over the
-  diffuse themselves, exactly as the engine did.
+  diffuse themselves, exactly as the engine did. A third texture stage exports
+  the same way over `TEXCOORD_2` (`texCoord: 2`).
 - Dual-render overlays become a second primitive that mirrors the engine's
   alpha pass: an `alphaMode: MASK` material with the stage-1 texture as
   `baseColorTexture (texCoord: 1)`, appended directly after its base
@@ -311,8 +324,8 @@ static per-material transform still shows a correct frame everywhere.
 
 - `hTexture_ptr` is dead on disk and stays unused (material id determines the
   texture).
-- Materials with 3+ texture stages would need `TEXCOORD_2+`; none exist in
-  shipped data.
+- Materials with 4+ texture stages would need `TEXCOORD_3+`; none exist in
+  shipped data (three-stage materials are covered, see §2).
 - The uv animation export assumes uniform per-frame duration (true for all
   shipped data); a material with per-frame timing would need non-uniform
   keys.

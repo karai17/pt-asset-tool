@@ -496,7 +496,7 @@ def process_animation(gltf: GLTF2, name: str, node: int, track: PTAnimationTrack
 """ PRIMITIVES """
 
 
-def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None, overlay_material_ids: set[int] | None = None, has_bones: bool = False) -> list[dict[str,]]:
+def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], anim_material_ids: set[int] | None = None, overlay_material_ids: set[int] | None = None, thirdstage_material_ids: set[int] | None = None, has_bones: bool = False) -> list[dict[str,]]:
 	"""Create a list of untangled primitives."""
 	prims = []
 	if not object.texture_coords or not object.vertices or not object.faces:
@@ -523,6 +523,12 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 			"joints0buffer": BufferReader(vert_words) if has_bones else None,
 			"weights0buffer": BufferReader(vert_words*4) if has_bones else None
 		}
+
+		# the third texture stage samples its own chain link (TEXCOORD_2); its
+		# buffer is allocated only for the materials that carry a third stage
+		thirdstage = thirdstage_material_ids is not None and material_id in thirdstage_material_ids
+		prim["texcoord2buffer"] = BufferReader(vert_words*2) if thirdstage else None
+		prim["texcoord2"] = thirdstage
 
 		# the engine redraws these faces with the second stage texture alone in
 		# an alpha pass (MapDualRend, smRend3d.cpp:3805-3809, 4105-4115); the
@@ -628,6 +634,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				tc = object.texture_coords[iface[0]]
 				uv0 = tc.uv_sets[0] if len(tc.uv_sets) > 0 else [PTTextureVertex()] * 3
 				uv1 = tc.uv_sets[1] if len(tc.uv_sets) > 1 else [PTTextureVertex()] * 3
+				uv2 = tc.uv_sets[2] if len(tc.uv_sets) > 2 else [PTTextureVertex()] * 3
 
 				# texlink v is exported verbatim: the engine samples the stored
 				# value directly (smRead3d.cpp:1548 actors, :2646 stages)
@@ -644,6 +651,13 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 					uv1[1].u, uv1[1].v,
 					uv1[2].u, uv1[2].v
 				))
+
+				if prim["texcoord2buffer"]:
+					prim["texcoord2buffer"].write((c_float*6)(
+						uv2[0].u, uv2[0].v,
+						uv2[1].u, uv2[1].v,
+						uv2[2].u, uv2[2].v
+					))
 
 				if len(tc.uv_sets) == 0:
 					prim["texcoord0"] = False
@@ -945,6 +959,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 	# Reference: smType.h:653
 	overlay_material_ids = set()
 	overlay_index_map = {}
+	thirdstage_material_ids = set()
 
 	anim_materials = []
 	for i, material in enumerate(model.materials):
@@ -1040,6 +1055,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 		alpha_textures = [
 			material.texture_map.diffuse_path,
 			material.texture_map.selfillum_path,
+			material.texture_map.thirdstage_path,
 			*material.texture_map.anim_frames,
 		]
 		if (material.texture_map.opacity_name
@@ -1056,6 +1072,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 		mtl.extras["collide"] = material.collide
 		mtl.extras["wall"] = (material.script_flags & 0x400) == 0x400
 		mtl.extras["renderLatter"] = (material.mesh_flags & 0x2000) == 0x2000
+		if material.blend_type:
+			mtl.extras["blendType"] = material.blend_type
 		if material.wind_mesh_bottom:
 			mtl.extras["windMeshBottom"] = material.wind_mesh_bottom
 
@@ -1192,12 +1210,42 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 						texCoord = 1
 					)
 
+			# third texture stage (TextureCounter == 3, glow + *lightingmap pairs):
+			# the engine modulates it over the added second stage through the
+			# COLOROP chain (SetD3DRendState, smRend3d.cpp:3778-3789). The map is
+			# multiplied over the lit result, so it exports like a lightmap: as an
+			# occlusion stand-in over TEXCOORD_2 (its own authored UV set)
+			if material.texture_map.thirdstage_path:
+				root, ext = get_filename(material.texture_map.thirdstage_path)
+
+				if args.png:
+					uri = (root + ".png").lower()
+				else:
+					uri = (root + ext).lower()
+
+				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+
+				if os.path.isfile(texpath):
+					gltf.images.append(Image(
+						uri = uri.replace("#", "%23")
+					))
+
+					gltf.textures.append(Texture(
+						source = len(gltf.images)-1
+					))
+
+					mtl.occlusionTexture = TextureInfo(
+						index = len(gltf.textures)-1,
+						texCoord = 2
+					)
+					thirdstage_material_ids.add(i)
+
 	""" MESHES """
 
 	anim_ids = { a["material"] for a in anim_atlas }
 
 	for object in model.objects:
-		untangled_prims = make_primitives(object, gltf.nodes, anim_ids, overlay_material_ids, bool(getattr(model, "bones", None)))
+		untangled_prims = make_primitives(object, gltf.nodes, anim_ids, overlay_material_ids, thirdstage_material_ids, bool(getattr(model, "bones", None)))
 		prim_pass = []
 		prim_col = []
 		prim_colonly = []
@@ -1320,6 +1368,28 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				))
 
 				p.attributes.TEXCOORD_1 = len(gltf.accessors)-1
+
+			# TEXCOORD_2: third texture stage UVs (glow + lightingmap pairs)
+			if prim.get("texcoord2"):
+				gltf.buffers.append(Buffer(
+					uri = "data:application/octet-stream;base64," + base64.b64encode(prim["texcoord2buffer"].get_data()).decode(),
+					byteLength = len(prim["texcoord2buffer"].data)
+				))
+
+				gltf.bufferViews.append(BufferView(
+					buffer = len(gltf.buffers)-1,
+					byteLength = len(prim["texcoord2buffer"].data),
+					target = ARRAY_BUFFER
+				))
+
+				gltf.accessors.append(Accessor(
+					bufferView = len(gltf.bufferViews)-1,
+					componentType = FLOAT,
+					count = prim["count"],
+					type = "VEC2"
+				))
+
+				p.attributes.TEXCOORD_2 = len(gltf.accessors)-1
 
 			# JOINTS_0
 			if prim["joints0buffer"]:

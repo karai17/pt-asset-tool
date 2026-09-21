@@ -535,7 +535,8 @@ def decode_actor_texture_coords(sm_modelbuffer: BufferReader, sm_object: smOBJ3D
 
 		texture_coords.append(PTObjectTexture_Coord(
 			face = PTObjectFace(
-				vertices = [ v+0, v+1, v+2 ]
+				vertices = [ v+0, v+1, v+2 ],
+				material_id = sm_face.v[3]
 			),
 			uv_sets = uv_sets
 		))
@@ -714,14 +715,28 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 			)
 			material.texture_map.diffuse_path = texpaths[0] # diffuse texture is the first texture
 
-		# The second texture stage rides the NextTex chain as TEXCOORD_1. In the
-		# dungeon stages it is a baked *LightingMap.bmp added on top of the
-		# diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630); elsewhere it is a glow
-		# map, or an alpha overlay redrawn in a second pass when the texture
+		# Texture stages 1..N ride the NextTex chain, stage cnt sampling the
+		# chain's cnt-th link with D3DTSS_TEXCOORDINDEX = cnt (SetD3DRendState,
+		# smRend3d.cpp:3782-3783, SetD3DRendBuff smRend3d.cpp:3216-3250).
+		# Stage 1 in the dungeon stages is a baked *LightingMap.bmp added on top
+		# of the diffuse (D3DTOP_ADD, smRend3d.cpp:3628-3630); elsewhere it is a
+		# glow map, or an alpha overlay redrawn in a second pass when the texture
 		# loads with alpha (MapOpacity, smTexture.cpp:3581/4208: a 32bpp TGA, or
-		# a texture with a NameA companion through LoadDibSurfaceAlpha)
-		if len(texpaths) == 2:
-			if "lightingmap" in texpaths[1].casefold():
+		# a texture with a NameA companion through LoadDibSurfaceAlpha).
+		# Stage 2+ (engine smTexture[8], smType.h:592; the *LM_ ASE importer
+		# authors the extra map as an afterthought link, smRead3d.cpp:2625-2650
+		# + 2664-2708) appears in the dun-5-ani/endless glow + *lightingmap
+		# pairs; both UV sets of the pair are authored independently of the
+		# diffuse (SetItem2PassD3DRendState's g_lightMapTexHandle chain only
+		# exists at runtime, smRend3d.cpp:4102)
+		for stage in range(1, len(texpaths)):
+			if stage > 1:
+				material.texture_map.thirdstage_name = decode_texture_map_name(
+					sm_material.TextureStageState[stage],
+					sm_material.TextureFormState[stage]
+				)
+				material.texture_map.thirdstage_path = texpaths[stage]
+			elif "lightingmap" in texpaths[1].casefold():
 				material.texture_map.lightmap_name = decode_texture_map_name(
 					sm_material.TextureStageState[1],
 					sm_material.TextureFormState[1]
@@ -1049,6 +1064,11 @@ def decode(modelpath: str, motionpath: str | None = None, metadata: PTModelMetad
 
 	# Reference: smPAT3D::LoadFile (smObj3d.cpp:2937): validate szHeader with
 	# lstrcmp, read the header, materials, then every object block.
+	# The Dun-5f map tiles (dun-5-ani-*) ship with the actor signature and
+	# actor layout, but the ASE stage importer authored them (the bLightMap
+	# path, smRead3d.cpp:2625-2650 + 2664-2708): their faces carry real
+	# material ids and a two-link chain whose lighting-map link holds the
+	# atlas cell; nothing here needs stage-layout emulation
 	if not os.path.exists(modelpath):
 		print(f"Model file not found: {modelpath}")
 		return
