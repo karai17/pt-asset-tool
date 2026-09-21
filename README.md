@@ -20,9 +20,11 @@ By default, if you run this application it will not produce results. You need to
 -m, --model          Decode models
 -s, --server         Decode server data
 -p, --png            Encode textures as PNG
--j, --json           Encode models as JSON
+-g, --jobs           Number of multiprocessing jobs
 -g, --gltf           Encode models as GLTF
+-b, --glb            Encode models as GLB (GLTF binary)
     --godot          Apply Godot-specific hints to GLTF output
+    --json           Encode models as JSON
 ```
 
 ```sh

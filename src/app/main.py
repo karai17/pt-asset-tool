@@ -34,10 +34,11 @@ if __name__ == "__main__":
 	parser.add_argument("-m", "--model", action="store_true")
 	parser.add_argument("-s", "--server", action="store_true")
 	parser.add_argument("-p", "--png", action="store_true")
-	parser.add_argument("-j", "--json", action="store_true")
+	parser.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
 	parser.add_argument("-g", "--gltf", action="store_true")
-	parser.add_argument("--glb", action="store_true")
+	parser.add_argument("-b", "--glb", action="store_true")
 	parser.add_argument("--godot", action="store_true")
+	parser.add_argument("--json", action="store_true")
 	args = parser.parse_args()
 
 	if args.input:

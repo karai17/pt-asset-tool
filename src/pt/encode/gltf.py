@@ -1,4 +1,5 @@
 import base64
+import math
 import numpy as np
 import os
 
@@ -46,8 +47,6 @@ from pt.utils import (
 	matrix_to_quaternion,
 	get_filename,
 	normalize_face,
-	multiply_quaternions,
-	lerp_vector
 )
 
 
@@ -197,12 +196,18 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 				pframe = int(ptfm.frame / 160)
 				cframe = int(tfm.frame / 160)
 
-				# if there are gaps between frames, fill them in
+				# if there are gaps between frames, fill them in (same
+				# (1-t)*a + t*b arithmetic as lerp_vector, without the per-key
+				# numpy arrays)
 				if cframe > pframe+1:
 					for f in range(pframe+1, cframe):
-						ntfm = lerp_vector(ptfm, tfm, (f-pframe) / (cframe-pframe))
-						ntfm.frame = f * 160
-						new_frames.append(ntfm)
+						t = (f-pframe) / (cframe-pframe)
+						new_frames.append(PTAnimationPosition(
+							frame = f * 160,
+							x = (1-t) * ptfm.x + t * tfm.x,
+							y = (1-t) * ptfm.y + t * tfm.y,
+							z = (1-t) * ptfm.z + t * tfm.z
+						))
 
 			ptfm = tfm
 
@@ -222,9 +227,13 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 				# if there are gaps between frames, fill them in
 				if cframe > pframe+1:
 					for f in range(pframe+1, cframe):
-						ntfm = lerp_vector(ptfm, tfm, (f-pframe) / (cframe-pframe))
-						ntfm.frame = f * 160
-						new_frames.append(ntfm)
+						t = (f-pframe) / (cframe-pframe)
+						new_frames.append(PTAnimationScale(
+							frame = f * 160,
+							x = (1-t) * ptfm.x + t * tfm.x,
+							y = (1-t) * ptfm.y + t * tfm.y,
+							z = (1-t) * ptfm.z + t * tfm.z
+						))
 
 			ptfm = tfm
 
@@ -246,7 +255,8 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 	scl = name == "scale"
 
 	if len(transforms) > 0:
-		orot = PTQuaternion()
+		qx = qy = qz = qw = 0.0
+		qw = 1.0
 		composed = []
 		frames = []
 		times = []
@@ -265,21 +275,30 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 					composed.pop()
 					# the dropped key's rotation delta must not leak into the
 					# accumulated delta quaternion, so rewind to the kept key
-					orot = composed[-1] if composed else PTQuaternion()
+					qx, qy, qz, qw = composed[-1] if composed else (0.0, 0.0, 0.0, 1.0)
 				times.pop()
 				frames.pop()
 			last_frame = transform.frame
 
 			if rot:
-				orot = multiply_quaternions(orot, transform)
-				composed.append(orot)
+				# accumulate the delta quaternion chain in plain doubles
+				# (multiply_quaternions with intermediate dataclass objects is
+				# ~20x slower per key; the arithmetic here is identical)
+				mx, my, mz, mw = transform.x, transform.y, transform.z, transform.w
+				nx = qx * mw + qw * mx + qy * mz - qz * my
+				ny = qy * mw + qw * my + qz * mx - qx * mz
+				nz = qz * mw + qw * mz + qx * my - qy * mx
+				nw = qw * mw - qx * mx - qy * my - qz * mz
+				mag = math.sqrt(nw*nw + nx*nx + ny*ny + nz*nz)
+				qx, qy, qz, qw = nx / mag, ny / mag, nz / mag, nw / mag
+				composed.append((qx, qy, qz, qw))
 
 			times.append(transform.frame / 160 / 30)
 			frames.append(transform.frame)
 
 			if has_bones:
 				if rot:
-					values += [ orot.x, orot.z, -orot.y, -orot.w ]
+					values += [ qx, qz, -qy, -qw ]
 				if pos:
 					values += [
 						 transform.x * SCALE_INCH_TO_METER,
@@ -290,7 +309,7 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 					values += [ transform.x, transform.z, transform.y ]
 			else:
 				if rot:
-					values += [ -orot.x, orot.z, orot.y, -orot.w ]
+					values += [ -qx, qz, qy, -qw ]
 				if pos:
 					values += [
 						-transform.x * SCALE_INCH_TO_METER,
@@ -531,6 +550,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 		for iface in faces:
 			# POSITION
 			vertices = []
+			overlay_face = False
 
 			for j in range(3):
 				face = iface[1]
@@ -614,6 +634,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				# indexed semantic set to start at 0 and be continuous, and the
 				# overlay material samples slot 1
 				if overlay_prim and len(tc.uv_sets) > 1:
+					overlay_face = True
 					uvs = [
 						uv1[0].u, uv1[0].v,
 						uv1[1].u, uv1[1].v,
@@ -663,7 +684,16 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 					for n, node in enumerate(nodes):
 						if bone == node.name:
 							prim["joints0buffer"].write((c_ubyte*4)(n, 0, 0, 0))
+							if overlay_face:
+								overlay_prim["joints0buffer"].write((c_ubyte*4)(n, 0, 0, 0))
 							break
+					else:
+						# the engine resolves every physique name at load
+						# (smRead3d.cpp:1448 GetObjectFromName) so this is a safety
+						# net; binding to bone 0 keeps the stream aligned
+						prim["joints0buffer"].write((c_ubyte*4)(0, 0, 0, 0))
+						if overlay_face:
+							overlay_prim["joints0buffer"].write((c_ubyte*4)(0, 0, 0, 0))
 
 				# WEIGHTS_0
 				prim["weights0buffer"].write((c_float*12)(
@@ -671,6 +701,12 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 					1, 0, 0, 0,
 					1, 0, 0, 0
 				))
+				if overlay_face:
+					overlay_prim["weights0buffer"].write((c_float*12)(
+						1, 0, 0, 0,
+						1, 0, 0, 0,
+						1, 0, 0, 0
+					))
 			else:
 				prim["joints0buffer"] = None
 				prim["weights0buffer"] = None
@@ -1185,7 +1221,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				max = [ prim["max"].x, prim["max"].y, prim["max"].z ]
 			))
 
-			p.attributes.POSITION = len(gltf.buffers)-1
+			p.attributes.POSITION = len(gltf.accessors)-1
 
 			# NORMAL
 			gltf.buffers.append(Buffer(
@@ -1206,7 +1242,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				type = "VEC3"
 			))
 
-			p.attributes.NORMAL = len(gltf.buffers)-1
+			p.attributes.NORMAL = len(gltf.accessors)-1
 
 			# TEXCOORD_0
 			if prim["texcoord0"]:
@@ -1228,7 +1264,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 					type = "VEC2"
 				))
 
-				p.attributes.TEXCOORD_0 = len(gltf.buffers)-1
+				p.attributes.TEXCOORD_0 = len(gltf.accessors)-1
 
 			# TEXCOORD_1
 			if prim["texcoord1"]:
@@ -1250,7 +1286,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 					type = "VEC2"
 				))
 
-				p.attributes.TEXCOORD_1 = len(gltf.buffers)-1
+				p.attributes.TEXCOORD_1 = len(gltf.accessors)-1
 
 			# JOINTS_0
 			if prim["joints0buffer"]:
@@ -1272,7 +1308,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 					type = "VEC4"
 				))
 
-				p.attributes.JOINTS_0 = len(gltf.buffers)-1
+				p.attributes.JOINTS_0 = len(gltf.accessors)-1
 
 			# WEIGHTS_0
 			if prim["weights0buffer"]:
@@ -1296,7 +1332,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 					type = "VEC4"
 				))
 
-				p.attributes.WEIGHTS_0 = len(gltf.buffers)-1
+				p.attributes.WEIGHTS_0 = len(gltf.accessors)-1
 
 			material = model.materials[prim["material"]]
 			is_wall = (material.script_flags & 0x400) == 0x400
@@ -1498,17 +1534,19 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			gltf.nodes.append(node)
 
 		if hasattr(object, "animation") and (object.animation.position or object.animation.rotation or object.animation.scale):
+			# animated TRS has no effect on a skinned mesh node (the skin's joint
+			# transforms drive it), and the validator rejects the channel target;
+			# skip before building the tracks so no unused buffers land between
+			# the primitives of this and the next object
+			if getattr(object, "physique", None):
+				continue
+
 			fill_animation_frames(object.animation)
 
 			track = PTAnimationTrack()
 			track.position = get_animation_track(gltf, object.animation.position, "position")
 			track.rotation = get_animation_track(gltf, object.animation.rotation, "rotation")
 			track.scale = get_animation_track(gltf, object.animation.scale, "scale")
-
-			# animated TRS has no effect on a skinned mesh node (the skin's joint
-			# transforms drive it), and the validator rejects the channel target
-			if getattr(object, "physique", None):
-				continue
 
 			process_animation(gltf, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track, None, input_accessors)
 
@@ -1673,4 +1711,38 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 def write(path: Path, gltf: GLTF2) -> None:
 	"""Writes a built glTF document to disk as .gltf or .glb."""
 	path.parent.mkdir(exist_ok=True, parents=True)
-	gltf.save(path, gltf.asset)
+
+	if path.suffix != ".glb":
+		gltf.save(path, gltf.asset)
+		return
+
+	# pygltflib's buffers_to_binary_blob base64-decodes a buffer's URI once per
+	# bufferView, so a shared buffer (one per bone track, sliced by hundreds of
+	# per-clip views) is re-decoded hundreds of times; decode each buffer once
+	# here and hand pygltflib the pre-assembled binary blob instead
+	parts = []
+	offsets = []
+	total = 0
+	for buffer in gltf.buffers:
+		offsets.append(total)
+		raw = base64.b64decode(buffer.uri.split(",", 1)[1])
+		parts.append(raw)
+		pad = -len(raw) % 4
+		parts.append(b"\0" * pad)
+		total += len(raw) + pad
+
+	for view in gltf.bufferViews:
+		view.byteOffset = (view.byteOffset or 0) + offsets[view.buffer]
+		view.buffer = 0
+
+	buffers = gltf.buffers
+	views = gltf.bufferViews
+	gltf.buffers = [Buffer(byteLength = total)]
+	gltf.set_binary_blob(b"".join(parts))
+
+	try:
+		gltf.save_binary(path)
+	finally:
+		gltf.set_binary_blob(None)
+		gltf.buffers = buffers
+		gltf.bufferViews = views
