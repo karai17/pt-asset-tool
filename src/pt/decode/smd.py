@@ -676,7 +676,7 @@ def decode_material(sm_modelbuffer: BufferReader) -> PTModelMaterial | None:
 	material.ambient = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ] # not in SMD, defaulting to diffuse
 	material.diffuse = [ sm_material.Diffuse[0], sm_material.Diffuse[1], sm_material.Diffuse[2] ]
 	material.specular = [ 0.9, 0.9, 0.9 ]
-	material.transparent = True if sm_material.Transparency > 0 else False
+	material.transparency = sm_material.Transparency
 	material.selfillum = True if sm_material.SelfIllum > 0 else False
 	material.two_sided = True if sm_material.TwoSide > 0 else False
 	material.mesh_flags = sm_material.MeshState

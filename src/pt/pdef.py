@@ -132,7 +132,7 @@ class PTModelMaterial:
 	ambient: list[float] = field(default_factory=list)
 	diffuse: list[float] = field(default_factory=list)
 	specular: list[float] = field(default_factory=list)
-	transparent: bool = False
+	transparency: float = 0.0
 	selfillum: bool = False
 	two_sided: bool = False
 	mesh_flags: int = 0

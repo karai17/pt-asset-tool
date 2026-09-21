@@ -1023,9 +1023,33 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 		# Priston Tale's material names are delimited with : but that is invalid
 		# for filesystems. Also remove the trailing delimiter.
 		mtl.name = f"mtl_{i}-{material.name.replace("BLEND_ALPHA:", "").replace(":", "-")}"[:-1]
-		mtl.alphaMode = "MASK"
+		mtl.alphaMode = "OPAQUE"
 		mtl.doubleSided = material.two_sided
 		mtl.alphaCutoff = None
+
+		# The engine alpha-tests whenever any texture in the chain loads with an
+		# alpha channel: every TGA does (new_smCreateTexture sets MapOpacity for
+		# TGAs unconditionally, smTexture.cpp:4206-4210; BMPs never do,
+		# smTexture.cpp:4192-4194), and an ASE *MAP_OPACITY forces an alpha load
+		# even on BMPs (LoadDibSurfaceAlpha, smTexture.cpp:862, 3574-3581).
+		# SetD3DRendState enables ALPHATESTENABLE at AlphaTestDepth and
+		# D3DCMP_GREATEREQUAL with depth-write ON while Transparency <= 0.2
+		# (ZWriteAuto, playmain.cpp:976; smRend3d.cpp:3981-3994): MASK with the
+		# engine's own test depth as alphaCutoff. Above 0.2 the engine turns
+		# Z-write off (true translucency): BLEND
+		alpha_textures = [
+			material.texture_map.diffuse_path,
+			material.texture_map.selfillum_path,
+			*material.texture_map.anim_frames,
+		]
+		if material.texture_map.opacity_path or any(
+			path is not None and path.lower().endswith(".tga") for path in alpha_textures
+		):
+			if material.transparency > 0.2:
+				mtl.alphaMode = "BLEND"
+			else:
+				mtl.alphaMode = "MASK"
+				mtl.alphaCutoff = 60 / 255
 
 		# authored engine attributes as data, for any consumer
 		mtl.extras["collide"] = material.collide
@@ -1121,6 +1145,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 						overlay_mtl = Material(
 							name = mtl.name + "-overlay",
 							alphaMode = "MASK",
+							alphaCutoff = 60 / 255,
 							doubleSided = mtl.doubleSided,
 							pbrMetallicRoughness = PbrMetallicRoughness(
 								baseColorTexture = TextureInfo(index = len(gltf.textures)-1, texCoord = 1),
@@ -1138,29 +1163,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 						mtl.emissiveFactor = [ selfillum, selfillum, selfillum ]
 						mtl.emissiveTexture = TextureInfo(index = len(gltf.textures)-1, texCoord = 1)
 
-			if material.texture_map.opacity_path:
-				mtl.alphaMode = "BLEND"
-				root, ext = get_filename(material.texture_map.opacity_path)
-
-				if args.png:
-					uri = (root + ".png").lower()
-				else:
-					uri = root + ext
-
-				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
-
-				if os.path.isfile(texpath):
-					gltf.images.append(Image(
-						uri = uri.replace("#", "%23")
-					))
-
-					gltf.textures.append(Texture(
-						source = len(gltf.images)-1
-					))
-
-					mtl.occlusionTexture = TextureInfo(index = len(gltf.textures)-1)
-
-			# lightmap: chained second texture of *LM_ dungeon stage materials,
+				# lightmap: chained second texture of *LM_ dungeon stage materials,
 			# exported as an occlusion map over TEXCOORD_1 (the engine adds the
 			# second stage with D3DTOP_ADD, smRend3d.cpp:3628-3630); consumers
 			# wanting baked-lighting previews can read it as AO
