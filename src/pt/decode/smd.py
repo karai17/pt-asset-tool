@@ -128,6 +128,12 @@ def decode_stage_vertices(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> 
 	return vertices, colors
 
 
+# Stage faces carry the face normal the importer wrote via SetVertexShade:
+# SetNormal cross product scaled to 32767 per component (smMap3d.cpp:93-120),
+# stored in the int16 VectNormal[0..2] with [3] unused (smStage3d.cpp:1232-1234).
+# Consumed verbatim at runtime for plane tests and slope angles
+# (smStage3d.cpp:412-414, 1440-1441), so the on-disk values are source data,
+# not derivable cache. Y and Z swap along with the vertices.
 def decode_stage_faces(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> list[PTObjectFace]:
 	faces = []
 
@@ -143,7 +149,12 @@ def decode_stage_faces(sm_modelbuffer: BufferReader, sm_stage: smSTAGE3D) -> lis
 				sm_face.Vertex[1],
 				sm_face.Vertex[2]
 			],
-			material_id = sm_face.Vertex[3]
+			material_id = sm_face.Vertex[3],
+			normal = PTVector3(
+				x = sm_face.VectNormal[0] / 32767,
+				y = sm_face.VectNormal[2] / 32767,
+				z = sm_face.VectNormal[1] / 32767
+			)
 		))
 
 	return faces
@@ -407,12 +418,27 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 # Actor vertices come from the actor ASE importer which keeps *MESH_VERTEX
 # (x,y,z) order unchanged, unlike the stage importer's x,z,y swap.
 # Reference: smRead3d.cpp:1346-1361 ReadASE_GEOMOBJECT
-def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> list[PTVector3]:
+# smVERTEX.nx/ny/nz are the vertex normals the renderer shades with
+# (smRend3d.cpp:1459-1480) and the skinning path transforms verbatim
+# (smObj3d.cpp:1888-1910). SetGNormals accumulates face cross products scaled
+# to 32767 per component and averages them per vertex (smObj3d.cpp:742-790);
+# files with OBJ_HEAD_TYPE_NEW_NORMAL (smObj3d.h:10; SaveFile always sets it,
+# smObj3d.cpp:2114-2121) then add the raw position to each component
+# (nx += x, smObj3d.cpp:792-798) and the renderer unpacks nx - x
+# (smRend3d.cpp:1461-1464). Older files (legacy DropItem/AssaEffect meshes)
+# store the bare scaled normal. The fields are NOT 8.8 fixed point despite
+# sitting next to x/y/z. Unreferenced vertices keep the zeroed fields and
+# decode as garbage; no face references them, so the exporter never reads
+# them.
+def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> tuple[list[PTVector3], list[PTVector3]]:
 	vertices = []
+	normals = []
 
 	# Some objects have no vertices
 	if sm_object.nVertex <= 0:
-		return vertices
+		return vertices, normals
+
+	packed = (sm_object.Head & 0x80000000) == 0x80000000
 
 	for _ in range(sm_object.nVertex):
 		sm_vertex = sm_modelbuffer.read(smVERTEX)
@@ -422,7 +448,22 @@ def decode_actor_vertices(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> l
 			z = sm_vertex.z / 256
 		))
 
-	return vertices
+		if packed:
+			nx = sm_vertex.nx - sm_vertex.x
+			ny = sm_vertex.ny - sm_vertex.y
+			nz = sm_vertex.nz - sm_vertex.z
+		else:
+			nx = sm_vertex.nx
+			ny = sm_vertex.ny
+			nz = sm_vertex.nz
+
+		normals.append(PTVector3(
+			x = nx / 32767,
+			y = ny / 32767,
+			z = nz / 32767
+		))
+
+	return vertices, normals
 
 
 # Faces are consumed in file order; v[3] holds the per-face material id that
@@ -764,7 +805,7 @@ def decode_bones(sm_motionbuffer: BufferReader, metadata: PTModelMetadata | None
 		bone.num_tfm_positions = sm_object.TmPosCnt
 		bone.num_tfm_scales = sm_object.TmScaleCnt
 
-		bone.vertices = decode_actor_vertices(sm_motionbuffer, sm_object)
+		bone.vertices, bone.vertex_normals = decode_actor_vertices(sm_motionbuffer, sm_object)
 		bone.faces = decode_actor_faces(sm_motionbuffer, sm_object)
 		bone.texture_coords = decode_actor_texture_coords(sm_motionbuffer, sm_object)
 		bone.animation, bone_last_frame = decode_actor_animation(sm_motionbuffer, sm_object)
@@ -958,7 +999,7 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			object.num_tfm_positions = sm_object.TmPosCnt
 			object.num_tfm_scales = sm_object.TmScaleCnt
 
-			object.vertices = decode_actor_vertices(sm_modelbuffer, sm_object)
+			object.vertices, object.vertex_normals = decode_actor_vertices(sm_modelbuffer, sm_object)
 			object.faces = decode_actor_faces(sm_modelbuffer, sm_object)
 			object.texture_coords = decode_actor_texture_coords(sm_modelbuffer, sm_object)
 			object.animation, _ = decode_actor_animation(sm_modelbuffer, sm_object)

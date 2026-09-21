@@ -595,8 +595,32 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 			# TODO: zero length normals suggests that there are degenerate triangles
 			# that need to be purged at some point.
 
-			for _ in range(3):
-				prim["normalbuffer"].write((c_float*3)(normal.x, normal.y, normal.z))
+			if hasattr(object, "vertex_normals") and object.vertex_normals:
+				authored = [object.vertex_normals[i] for i in iface[1].vertices]
+				flipped = False
+			elif iface[1].normal is not None:
+				authored = [iface[1].normal, iface[1].normal, iface[1].normal]
+				flipped = True
+			else:
+				authored = None
+
+			corner_normals = []
+			for j in range(3):
+				if authored is None:
+					corner_normals.append((normal.x, normal.y, normal.z))
+					continue
+
+				# same component mapping as the positions above
+				if hasattr(object, "physique") and object.physique:
+					nx, ny, nz = authored[j].x, authored[j].z, -authored[j].y
+				else:
+					nx, ny, nz = -authored[j].x, authored[j].z, authored[j].y
+				if flipped:
+					nx, ny, nz = -nx, -ny, -nz
+				corner_normals.append((nx, ny, nz))
+
+			for nx, ny, nz in corner_normals:
+				prim["normalbuffer"].write((c_float*3)(nx, ny, nz))
 
 			# TEXCOORD_0
 			# faces with a null lpTexLink_ptr have no texture link (nTexLink < nFace)
@@ -667,9 +691,7 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 							overlay_prim["max"].y = max(overlay_prim["max"].y, p[1])
 							overlay_prim["max"].z = max(overlay_prim["max"].z, p[2])
 					overlay_prim["normalbuffer"].write((c_float*9)(
-						normal.x, normal.y, normal.z,
-						normal.x, normal.y, normal.z,
-						normal.x, normal.y, normal.z
+						*corner_normals[0], *corner_normals[1], *corner_normals[2]
 					))
 			else:
 				prim["texcoord0"] = False
@@ -825,6 +847,13 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 							np_m = to_np_matrix(bone.transform)
 							np_v = to_np_vector(object.vertices[v])
 							object.vertices[v] = from_np_vector(np_v @ np_m)
+							# the engine transforms skinned normals with the same
+							# bone matrix (smObj3d.cpp:1888-1910); w=0 drops the
+							# translation, which unpacked normals must not inherit
+							if v < len(object.vertex_normals):
+								n = object.vertex_normals[v]
+								np_n = np.array([ n.x, n.y, n.z, 0 ], dtype=np.float32) @ np_m
+								object.vertex_normals[v] = PTVector3(np_n[0], np_n[1], np_n[2])
 							break
 			model._bone_space = True
 

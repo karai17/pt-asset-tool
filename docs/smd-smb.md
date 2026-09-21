@@ -322,9 +322,21 @@ Total size varies from ~30 KB to ~2 MB per stage.
 | 0 | 4 | `x` | `int32` | Fixed point 1/256 |
 | 4 | 4 | `y` | `int32` | Fixed point 1/256 |
 | 8 | 4 | `z` | `int32` | Fixed point 1/256 |
-| 12 | 4 | `nx` | `int32` | Normal, fixed point 1/256 |
-| 16 | 4 | `ny` | `int32` | Normal, fixed point 1/256 |
-| 20 | 4 | `nz` | `int32` | Normal, fixed point 1/256 |
+| 12 | 4 | `nx` | `int32` | Vertex normal (packed, see below) |
+| 16 | 4 | `ny` | `int32` | Vertex normal (packed, see below) |
+| 20 | 4 | `nz` | `int32` | Vertex normal (packed, see below) |
+
+The normal fields are **not** 8.8 fixed point like `x/y/z`. `SetGNormals`
+accumulates each adjacent face's cross-product normal scaled to 32767 per
+component and averages them per vertex (`smObj3d.cpp:742-790`). Objects with
+`OBJ_HEAD_TYPE_NEW_NORMAL` (`0x80000000` in `Head`, `smObj3d.h:10`; the
+official exporter always sets it, `smObj3d.cpp:2114-2121`) then add the raw
+vertex position to each component (`nx += x`, `smObj3d.cpp:792-798`) — the
+renderer unpacks `normal = nx - x` for shading (`smRend3d.cpp:1461-1464`)
+and transforms the packed value with the bone matrices at runtime
+(`smObj3d.cpp:1888-1910`). Older files store the bare scaled normal and are
+shaded without the position subtraction (`smRend3d.cpp:1476`). Vertices not
+referenced by any face keep the zeroed fields from `SetGNormals`.
 
 #### smFACE
 
@@ -370,7 +382,7 @@ Total size varies from ~30 KB to ~2 MB per stage.
 | 4 | 4 | `CalcSum` | `int32` | Runtime sorting value |
 | 8 | 8 | `Vertex` | `uint16[4]` | Vertex indices a, b, c; `Vertex[3]` is the material id (sic: "Matrial") |
 | 16 | 4 | `lpTexLink_ptr` | `uint32` | Stale pointer; consecutive faces' pointers differ by exactly `sizeof(smTEXLINK)` (32), so the index into the `smTEXLINK` array is derived from the pointer difference (see `decode_stage_texture_coords`) |
-| 20 | 8 | `VectNormal` | `int16[4]` | Face normal; comment: "(nx, ny, nz, [0,1,0]-axis Y)" |
+| 20 | 8 | `VectNormal` | `int16[4]` | Face normal, components scaled to 32767 (unit vector); `[3]` unused. Written by `SetVertexShade` from the `SetNormal` cross product at ASE import (`smMap3d.cpp:93-120`, stored `smStage3d.cpp:1232-1234`), loaded verbatim and consumed for plane tests and slope angles (`smStage3d.cpp:412-414`, `:1440-1441`) |
 
 #### smLIGHT3D
 
@@ -631,8 +643,13 @@ because real files depend on them.
 
 ## Coordinates and units
 
-- Positions and normals are fixed point `raw / 256` (engine units are inches;
+- Positions are fixed point `raw / 256` (engine units are inches;
 	`SCALE_INCH_TO_METER = 0.0254` in `src/pt/const.py` converts to meters).
+	Vertex/face normals are a different scale: actors store the averaged face
+	normal scaled to 32767 per component, packed with the position when
+	`OBJ_HEAD_TYPE_NEW_NORMAL` is set (see `smVERTEX` above); stages store the
+	per-face normal scaled to 32767. Both decode to unit-scale floats
+	(`/ 32767`, unpacking `nx - x` for packed actor files).
 - Actor vertices decode as-is (`x, y, z`).
 - Stage vertices decode with Y and Z swapped (`x, z, y`); reference:
 	`smRead3d.cpp::smSTAGE3D_ReadASE_GEOMOBJECT`.

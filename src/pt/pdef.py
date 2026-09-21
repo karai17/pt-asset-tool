@@ -105,6 +105,7 @@ class PTColorVertex:
 class PTObjectFace:
 	vertices: list[int] = field(default_factory=list)
 	material_id: int | None = None
+	normal: PTVector3 | None = None
 
 
 @dataclass
@@ -256,6 +257,7 @@ class PTActorObject:
 	num_tfm_rotations: int = 0
 	num_tfm_scales: int = 0
 	vertices: list[PTVector3] = field(default_factory=list)
+	vertex_normals: list[PTVector3] = field(default_factory=list)
 	faces: list[PTObjectFace] = field(default_factory=list)
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
@@ -274,6 +276,7 @@ class PTActorBone:
 	num_tfm_rotations: int = 0
 	num_tfm_scales: int = 0
 	vertices: list[PTVector3] = field(default_factory=list)
+	vertex_normals: list[PTVector3] = field(default_factory=list)
 	faces: list[PTObjectFace] = field(default_factory=list)
 	texture_coords: list[PTObjectTexture_Coord] = field(default_factory=list)
 	transform: PTObjectTransform = field(default_factory=PTObjectTransform)
