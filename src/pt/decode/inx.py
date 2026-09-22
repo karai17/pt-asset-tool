@@ -173,14 +173,20 @@ def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = 
 	metadata.npc_motion_rate_table = list(sm_modelinfo.NpcMotionRateCnt)
 	metadata.talk_motion_rate_table = [list(rates) for rates in sm_modelinfo.TalkMotionRateCnt]
 
-	# chain files: szLinkFile / szTalkLinkFile are game-root-relative INX
-	# references whose motion / facial tables are inherited by the loader
-	# (fileread.cpp:996-1056); the stored extension is truncated and
-	# reconstructed via ChangeFileExt(szFile, "inx") (smRead3d.cpp:92), so they
-	# surface with the .inx extension restored. szTalkMotionFile is the face
-	# model the talk motions were merged into (authored as .ASE, shipped as
-	# .smb); szSubModelFile is an auxiliary model loaded as a second character
-	# pattern (character.cpp:831-834).
+	# chain inheritance (fileread.cpp:996-1056): the loader re-reads the linked
+	# INX and, when the LINKED file carries the table (its MotionCount /
+	# TalkMotionCount > CHRMOTION_EXT), replaces our motion table (szLinkFile,
+	# i==1) or facial table (szTalkLinkFile, i==2) wholesale, including the
+	# referenced motion file and the table's rate tables - a local table does
+	# not shield it (fileread.cpp:1031-1050 has no local-count condition).
+	# Every shipped file that has both a local table and a link self-references
+	# (the link points at the file's own .in), so on those the replacement is a
+	# no-op; the rule still matters for cross-file chains. The stored extension
+	# is truncated and reconstructed via ChangeFileExt(szFile, "inx")
+	# (smRead3d.cpp:92), so links surface with the .inx extension restored.
+	# szTalkMotionFile is the face model the talk motions were merged into
+	# (authored as .ASE, shipped as .smb); szSubModelFile is an auxiliary model
+	# loaded as a second character pattern (character.cpp:831-834).
 	linkfile = decode_string(sm_modelinfo.szLinkFile)
 	if linkfile:
 		rootname, _ = get_filename(linkfile)
@@ -198,7 +204,7 @@ def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = 
 	# the referenced motion file - the *파일연결 chain is how clothing variants
 	# share the biped's animations.
 	if chain:
-		if metadata.link_file and sm_modelinfo.MotionCount <= 10:
+		if metadata.link_file:
 			linkpath = resolve_modelpath(dirpath, metadata.link_file, root, ".inx")
 			linked = read_modelinfo(linkpath) if os.path.exists(linkpath) else None
 			if linked is not None and linked.MotionCount > 10:
@@ -206,7 +212,7 @@ def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = 
 				metadata.animations = linked_metadata.animations
 				metadata.npc_motion_rate_table = linked_metadata.npc_motion_rate_table
 				motionfilename = linked_motionfile
-		if metadata.talk_link_file and sm_modelinfo.TalkMotionCount <= 10:
+		if metadata.talk_link_file:
 			linkpath = resolve_modelpath(dirpath, metadata.talk_link_file, root, ".inx")
 			linked = read_modelinfo(linkpath) if os.path.exists(linkpath) else None
 			if linked is not None and linked.TalkMotionCount > 10:
@@ -214,6 +220,8 @@ def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = 
 				metadata.talk_animations = linked_metadata.talk_animations
 				metadata.talk_motion_rate_table = linked_metadata.talk_motion_rate_table
 				metadata.talk_motion_file = linked_metadata.talk_motion_file
+				# the engine also copies the linked file's szTalkLinkFile over ours
+				# (fileread.cpp:1040); szLinkFile is left alone in the i==1 branch.
 
 	return metadata, motionfilename
 
