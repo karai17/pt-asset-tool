@@ -557,6 +557,11 @@ def decode_actor_animation(sm_modelbuffer: BufferReader, sm_object: smOBJ3D) -> 
 	rot_windows = key_frame_windows(sm_object.TmRotCnt, sm_object.TmRotFrame)
 	pos_windows = key_frame_windows(sm_object.TmPosCnt, sm_object.TmPosFrame)
 	scl_windows = key_frame_windows(sm_object.TmScaleCnt, sm_object.TmScaleFrame)
+	animation.rotation_windows = rot_windows
+	animation.rotation_window_frames = [
+		f.StartFrame for f in sm_object.TmRotFrame
+		if f.PosCnt > 0 and f.StartFrame > 0
+	]
 
 	# For each key group, keep only the keys inside the valid window. For
 	# scene last_frame, mirror smPAT3D::AddObject exactly: the last frame of

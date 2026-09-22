@@ -246,6 +246,13 @@ class PTActorAnimation:
 	rotation: list[PTAnimationRotation] = field(default_factory=list)
 	position: list[PTAnimationPosition] = field(default_factory=list)
 	scale: list[PTAnimationScale] = field(default_factory=list)
+	# [start, end) index ranges of the readable motion-file windows inside the key
+	# arrays (key_frame_windows) plus the absolute start FRAME of each window
+	# after the first; the engine restarts its TmPrevRot rotation accumulation
+	# at each window (smRead3d.cpp:1642-1671, GetRotFrame smObj3d.cpp:1130),
+	# so the exporter must do the same
+	rotation_windows: list[tuple[int, int]] = field(default_factory=list)
+	rotation_window_frames: list[int] = field(default_factory=list)
 	_filled: bool = False
 
 

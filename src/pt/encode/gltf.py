@@ -243,7 +243,7 @@ def fill_animation_frames(transform: PTActorAnimation) -> None:
 
 # this function is a little clunky because of the variances between the different transforms.
 # however, the transforms are similar enough that the majority of the code is duplicate for each.
-def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | list[PTAnimationRotation] | list[PTAnimationScale], name: str, has_bones: bool = False, animations: list[PTModelMetadata] | None = None) -> PTAnimationSampler:
+def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | list[PTAnimationRotation] | list[PTAnimationScale], name: str, has_bones: bool = False, animations: list[PTModelMetadata] | None = None, windows: list[tuple[int, int]] | None = None, window_frames: list[int] | None = None) -> PTAnimationSampler:
 	"""
 	Get the animation values per transform. Times are resolved per clip in
 	process_animation_transform against the clip's own frame window, mirroring
@@ -262,13 +262,21 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 		times = []
 		values = []
 
+		# start frames of the motion-file windows after the first (see restart
+		# comment inside the loop); a window only matters if a key carries its
+		# start frame
+		window_starts = set()
+		if rot and window_frames:
+			key_frames = {t.frame for t in transforms}
+			window_starts = {f for f in window_frames if f in key_frames}
+
 		# merged motion files can author two keys at a window boundary frame
 		# (the incoming clip's first key re-based onto the previous clip's last
 		# frame); a clip starting at that boundary samples the later window's
 		# key, so keep the last key of each duplicated frame
 		last_frame = None
 
-		for transform in transforms:
+		for idx, transform in enumerate(transforms):
 			if last_frame is not None and transform.frame <= last_frame:
 				del values[-4 if rot else -3:]
 				if composed:
@@ -280,7 +288,28 @@ def get_animation_track(gltf: GLTF2, transforms: list[PTAnimationPosition] | lis
 				frames.pop()
 			last_frame = transform.frame
 
+
 			if rot:
+				# the engine's TmPrevRot table accumulates rotation deltas from
+				# EACH motion-file window's own first key (smASE_MergeBone copies
+				# per-file accumulates verbatim, smRead3d.cpp:2244-2266;
+				# GetRotFrame composes TmPrevRot[cnt] * slerp(deltas),
+				# smObj3d.cpp:1130-1194), so the chain restarts at every window -
+				# a single chain across the whole array would replay every prior
+				# window's motion into later ones (hammer_goblin mangled pose).
+				# windows carry (PosNum, PosCnt) index pairs, but fill_animation_frames
+				# may have inserted frames by now, so match on the window's START
+				# FRAME instead of the key index. The boundary frame can carry two
+				# keys - the previous window's tail and the next window's first,
+				# re-based onto it - and the engine consumes only the second (its
+				# window tables are [StartFrame, EndFrame), so the tail belongs to
+				# neither window's playback): restart before the LAST key of the
+				# boundary frame, which the dedupe below also keeps
+				if windows and transform.frame in window_starts and (
+					idx + 1 >= len(transforms) or transforms[idx + 1].frame != transform.frame
+				):
+					qx = qy = qz = 0.0
+					qw = 1.0
 				# accumulate the delta quaternion chain in plain doubles
 				# (multiply_quaternions with intermediate dataclass objects is
 				# ~20x slower per key; the arithmetic here is identical)
@@ -1709,7 +1738,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 
 			track = PTAnimationTrack()
 			track.position = get_animation_track(gltf, object.animation.position, "position")
-			track.rotation = get_animation_track(gltf, object.animation.rotation, "rotation")
+			track.rotation = get_animation_track(gltf, object.animation.rotation, "rotation", windows=object.animation.rotation_windows, window_frames=object.animation.rotation_window_frames)
 			track.scale = get_animation_track(gltf, object.animation.scale, "scale")
 
 			process_animation(gltf, "ani" + ("-loop" if args.godot else ""), len(gltf.nodes)-1, track, None, input_accessors)
@@ -1722,7 +1751,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 
 			track = PTAnimationTrack()
 			track.position = get_animation_track(gltf, bone.animation.position, "position", True, model.animations)
-			track.rotation = get_animation_track(gltf, bone.animation.rotation, "rotation", True, model.animations)
+			track.rotation = get_animation_track(gltf, bone.animation.rotation, "rotation", True, model.animations, bone.animation.rotation_windows, bone.animation.rotation_window_frames)
 			track.scale = get_animation_track(gltf, bone.animation.scale, "scale", True, model.animations)
 
 			for animation in model.animations:
@@ -1740,7 +1769,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			for bone in model.bones:
 				track = PTAnimationTrack()
 				track.position = get_animation_track(gltf, bone.animation.position, "position", True, model.talk_animations)
-				track.rotation = get_animation_track(gltf, bone.animation.rotation, "rotation", True, model.talk_animations)
+				track.rotation = get_animation_track(gltf, bone.animation.rotation, "rotation", True, model.talk_animations, bone.animation.rotation_windows, bone.animation.rotation_window_frames)
 				track.scale = get_animation_track(gltf, bone.animation.scale, "scale", True, model.talk_animations)
 
 				for animation in model.talk_animations:
