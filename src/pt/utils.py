@@ -329,19 +329,17 @@ def trs_to_np_matrix(t: PTVector3, r: PTQuaternion, s: PTVector3) -> npt.NDArray
 	return np_rsm
 
 
-def sm_tm_to_np(tm, scale_fixup: int = 256) -> npt.NDArray[np.float64]:
+def sm_tm_to_np(tm) -> npt.NDArray[np.float64]:
 	"""Convert a raw ctypes smMATRIX to a float64 4x4 in the engine's row-major
 	layout (translation in the last row). Fields are 8.8 fixed point against the
 	fONE base (smType.h:21-24); the engine converts with smFMatrixFromMatrix
-	(smmatrix.cpp:863, /fONE). scale_fixup mirrors the ReformTM rescaling
-	(Tm._ij = (Tm._ij << FLOATNS) / scale, smObj3d.cpp:933-961) that the engine
-	applies to the rotation rows before building animation matrices; it is the
-	identity for the unit-scale (256) bones of every shipped model."""
-	fix = scale_fixup / 256.0
+	(smmatrix.cpp:863, /fONE). The runtime reads Tm verbatim from the SMD file
+	(smPAT3D::LoadFile, smObj3d.cpp:2937) and uses it as-is in the static branch
+	of TmAnimation, so no rescaling is applied here."""
 	return np.array([
-		[tm._11 / 256.0 * fix, tm._12 / 256.0 * fix, tm._13 / 256.0 * fix, 0.0],
-		[tm._21 / 256.0 * fix, tm._22 / 256.0 * fix, tm._23 / 256.0 * fix, 0.0],
-		[tm._31 / 256.0 * fix, tm._32 / 256.0 * fix, tm._33 / 256.0 * fix, 0.0],
+		[tm._11 / 256.0, tm._12 / 256.0, tm._13 / 256.0, 0.0],
+		[tm._21 / 256.0, tm._22 / 256.0, tm._23 / 256.0, 0.0],
+		[tm._31 / 256.0, tm._32 / 256.0, tm._33 / 256.0, 0.0],
 		[tm._41 / 256.0, tm._42 / 256.0, tm._43 / 256.0, 1.0]
 	], dtype=np.float64)
 

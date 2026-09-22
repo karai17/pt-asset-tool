@@ -315,8 +315,17 @@ def decode_actor_parent(parent_name: str | None, sm_object_self: smOBJ3D | None 
 #   qx..qw   -> baked into TmRotate at import (smRead3d.cpp:1268), used as
 #               the animation rotation when the bone has NO rotation keys
 #               (smFMatrixFromMatrix(qmat, TmRotate))
-# sx/sy/sz feed only the ReformTM scale normalization (smObj3d.cpp:920-985).
-# None of them participate in the static hierarchy.
+# sx/sy/sz feed only the ReformTM scale normalization (smObj3d.cpp:920-985),
+# which runs solely in the ASE-to-SMD converter (smRead3d.cpp:1894/1980/2066,
+# immediately before SaveFile) and never in the runtime: smPAT3D::LoadFile
+# (smObj3d.cpp:2937) reads Tm verbatim and smOBJ3D::TmAnimation's static branch
+# uses Tm directly (root: smFMatrixFromMatrix(qmat, Tm); child: qmat = Tm *
+# pParent->TmInvert, telescoping to TmResult == Tm). ReformTM is rendering-
+# neutral anyway: it rescales the rotation rows by 256/S while premultiplying
+# the mesh vertices by inv(Tm) in the same pass (smObj3d.cpp:965-1000), so
+# on-disk Tm x on-disk vertices equals the authored world regardless of whether
+# a file went through it. The decoder therefore mirrors the runtime: Tm is used
+# verbatim and sx/sy/sz never enter the transform.
 #
 # This matters because the static fields are not even self-consistent across
 # files: the ASE exporters wrote either parent-relative data (Buma) or
@@ -325,43 +334,17 @@ def decode_actor_parent(parent_name: str | None, sm_object_self: smOBJ3D | None 
 # consistent truth, so position/rotation below ALWAYS derive from
 # qmat = Tm * inv(parentTm) - the engine's own math - never from px..qw.
 #
-# The PTObjectTransform matrix fields (_ij) keep the world Tm (with the
-# ReformTM scale fixup mirrored): the glTF exporter's vertex bake and
-# inverse-bind matrices pair against it.
-def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None, has_bones: bool = False):
-	if sm_object_parent:
-		scalei = PTVector3Int(
-			x = sm_object_parent.sx,
-			y = sm_object_parent.sy,
-			z = sm_object_parent.sz
-		)
-	else:
-		scalei = PTVector3Int(
-			x = sm_object.sx,
-			y = sm_object.sy,
-			z = sm_object.sz
-		)
-
-	# rotation matrix needs some scale manipulation (ReformTM does
-	# Tm._ij = (Tm._ij << FLOATNS) / scale, smObj3d.cpp:933-961; dividing by
-	# scale/256 as float is algebraically equivalent for the /256 fixed point
-	# used here)
-	manipulated = int((scalei.x + scalei.y + scalei.z) / 3)
-
-	if has_bones or manipulated == 0:
-		manipulated = 256
-
+# The PTObjectTransform matrix fields (_ij) keep the world Tm verbatim: the
+# glTF exporter's vertex bake and inverse-bind matrices pair against it.
+def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None):
 	# TRS decomposition from Tm, the engine's authoritative matrix. qmat is the
 	# engine's own static-branch math: local = Tm * inv(parentTm); for a root
 	# bone the engine uses Tm directly (smOBJ3D::TmAnimation:
-	# smFMatrixFromMatrix(qmat, Tm)). The ReformTM scale fixup is applied first
-	# to mirror the order the engine runs in (ReformTM mutates Tm before any
-	# animation matrix is built); for the unit-scale bipeds of every shipped
-	# model it is the identity.
-	cm = sm_tm_to_np(sm_object.Tm, manipulated)
+	# smFMatrixFromMatrix(qmat, Tm)).
+	cm = sm_tm_to_np(sm_object.Tm)
 	local = cm
 	if sm_object_parent:
-		local = sm_tm_parent_local(cm, sm_tm_to_np(sm_object_parent.Tm, manipulated))
+		local = sm_tm_parent_local(cm, sm_tm_to_np(sm_object_parent.Tm))
 		if local is None:
 			local = cm
 
@@ -384,23 +367,23 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 	rotation, fix_scale, flipped = decompose_rotation(local)
 
 	scale = PTVector3(
-		x = sm_object.sx / 256 * fix_scale[0],
-		y = sm_object.sy / 256 * fix_scale[1],
-		z = sm_object.sz / 256 * fix_scale[2] * (-1 if flipped else 1)
+		x = fix_scale[0],
+		y = fix_scale[1],
+		z = fix_scale[2] * (-1 if flipped else 1)
 	)
 
 	return PTObjectTransform(
-		_11 = sm_object.Tm._11 / 256 * manipulated / 256,
-		_12 = sm_object.Tm._12 / 256 * manipulated / 256,
-		_13 = sm_object.Tm._13 / 256 * manipulated / 256,
+		_11 = sm_object.Tm._11 / 256,
+		_12 = sm_object.Tm._12 / 256,
+		_13 = sm_object.Tm._13 / 256,
 		_14 = 0,
-		_21 = sm_object.Tm._21 / 256 * manipulated / 256,
-		_22 = sm_object.Tm._22 / 256 * manipulated / 256,
-		_23 = sm_object.Tm._23 / 256 * manipulated / 256,
+		_21 = sm_object.Tm._21 / 256,
+		_22 = sm_object.Tm._22 / 256,
+		_23 = sm_object.Tm._23 / 256,
 		_24 = 0,
-		_31 = sm_object.Tm._31 / 256 * manipulated / 256,
-		_32 = sm_object.Tm._32 / 256 * manipulated / 256,
-		_33 = sm_object.Tm._33 / 256 * manipulated / 256,
+		_31 = sm_object.Tm._31 / 256,
+		_32 = sm_object.Tm._32 / 256,
+		_33 = sm_object.Tm._33 / 256,
 		_34 = 0,
 		_41 = sm_object.Tm._41 / 256,
 		_42 = sm_object.Tm._42 / 256,
@@ -408,9 +391,7 @@ def decode_actor_transform(sm_object: smOBJ3D, sm_object_parent: smOBJ3D | None,
 		_44 = 1,
 
 		rotation = rotation,
-
 		position = position,
-
 		scale = scale
 	)
 
@@ -1034,12 +1015,12 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			object.texture_coords = decode_actor_texture_coords(sm_modelbuffer, sm_object)
 			object.animation, _ = decode_actor_animation(sm_modelbuffer, sm_object)
 			object.physique = decode_actor_physique(sm_modelbuffer, sm_object, has_bones)
-			object.transform = decode_actor_transform(sm_object, sm_object_parent, has_bones)
+			object.transform = decode_actor_transform(sm_object, sm_object_parent)
 
 			if found:
-				# static rotation fallback for objects without rotation keys,
-				# matching TmAnimation's else branch
-				# (smFMatrixFromMatrix(qmat, TmRotate), smObj3d.cpp:1345).
+				# TmRotate is the animation rotation fallback for objects with
+				# rotation keys (TmAnimation's else branch, smObj3d.cpp:1345);
+				# the exporter uses it for animated static nodes only
 				# NOTE: this is used on objects without rotation frames
 				# Reference: @Rovug from RageZone Priston Tale Discord
 				object.transform_rotate._11 = sm_object.TmRotate._11 / 256

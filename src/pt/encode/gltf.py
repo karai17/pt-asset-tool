@@ -1253,6 +1253,9 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 		anim_node_refs = []
 
 		m = object.transform
+		anim = getattr(object, "animation", None)
+		animated = anim is not None and (anim.position or anim.rotation or anim.scale)
+		matrix = None
 
 		# swap Y and Z (smStgObj.cpp:82)
 		position = PTVector3(
@@ -1261,19 +1264,61 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			z =  m._42 * SCALE_INCH_TO_METER
 		)
 
-		# Priston Tale stores but does not use the transform scale; node scale
-		# must stay unit or the mesh collapses to a point
-		scale = PTVector3(1, 1, 1)
-		rotation = PTQuaternion()
-
-		if hasattr(object, "transform_rotate"):
-			q = matrix_to_quaternion(object.transform_rotate)
-			rotation	= PTQuaternion(
-				x = -q.x,
-				y =  q.z,
-				z =  q.y,
-				w = -q.w
+		# Static node transform mirrors TmAnimation exactly: objects with keys
+		# render through the keys (TmRotate baked at import, smRead3d.cpp:1268;
+		# scale falls back to identity, no Tm scale) while key-less objects
+		# render Tm verbatim. The two rotation sources disagree in shipped data
+		# (door.smd Object04's TmRotate deviates 180 degrees from its Tm rows
+		# while carrying no keys), so each node must use its own source. Both
+		# share the same axis-sign mapping, verified per-vertex against the
+		# engine's row-vector Tm x vertex math on door.smd. swap Y and Z like
+		# the position above
+		if animated:
+			q = matrix_to_quaternion(object.transform_rotate) if hasattr(object, "transform_rotate") else PTQuaternion()
+			scale = PTVector3(1, 1, 1)
+		else:
+			q = m.rotation
+			scale = PTVector3(
+				x = m.scale.x,
+				y = m.scale.z,
+				z = m.scale.y
 			)
+		rotation = PTQuaternion(
+			x = -q.x,
+			y =  q.z,
+			z =  q.y,
+			w = -q.w
+		)
+
+		# Tm rows may carry genuine shear (door.smd Object04: rows non-
+		# orthonormal by ~2%) that TRS cannot represent - a decomposed node
+		# lands up to ~1 m off the engine render. glTF's node.matrix takes an
+		# arbitrary affine transform, so key-less objects with shear export
+		# their whole Tm as a matrix instead (column-major, engine axes
+		# remapped like the position above).
+		if not animated:
+			Tm = np.array([
+				[m._11, m._21, m._31, m._41],
+				[m._12, m._22, m._32, m._42],
+				[m._13, m._23, m._33, m._43],
+				[0, 0, 0, 1]
+			], dtype=np.float64)
+			P = np.array([
+				[-1, 0, 0, 0],
+				[ 0, 0, 1, 0],
+				[ 0, 1, 0, 0],
+				[ 0, 0, 0, 1]
+			], dtype=np.float64)
+			# the engine maps world = v_row @ Tm (translation in the last ROW);
+			# glTF nodes map world = M @ v_col. v_row @ Tm == Tm.T @ v_col, and
+			# the axis remap conjugates with P, so M = P @ Tm_engine.T @ P - and
+			# the Tm assembled above is already stored transposed (linear part
+			# = engine rows transposed, translation in the last column), which
+			# cancels the transpose
+			M = np.eye(4)
+			M[:3, :3] = P[:3, :3] @ Tm[:3, :3] @ P[:3, :3]
+			M[:3, 3] = P[:3, :3] @ Tm[:3, 3] * SCALE_INCH_TO_METER
+			matrix = [float(v) for v in M.T.flatten()]  # column-major for glTF
 
 		for prim in untangled_prims:
 			if prim.get("overlay_material"):
@@ -1467,6 +1512,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				# nodes either have a local transform or a skin, never both
 				if hasattr(object, "physique") and object.physique:
 					node.skin = 0
+				elif not animated and locals().get("matrix"):
+					node.matrix = matrix
 				else:
 					node.translation = [ position.x, position.y, position.z ]
 					node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1492,6 +1539,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				# nodes either have a local transform or a skin, never both
 				if hasattr(object, "physique") and object.physique:
 					node.skin = 0
+				elif not animated and locals().get("matrix"):
+					node.matrix = matrix
 				else:
 					node.translation = [ position.x, position.y, position.z ]
 					node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1515,6 +1564,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				# nodes either have a local transform or a skin, never both
 				if hasattr(object, "physique") and object.physique:
 					node.skin = 0
+				elif not animated and locals().get("matrix"):
+					node.matrix = matrix
 				else:
 					node.translation = [ position.x, position.y, position.z ]
 					node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1538,6 +1589,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				# nodes either have a local transform or a skin, never both
 				if hasattr(object, "physique") and object.physique:
 					node.skin = 0
+				elif not animated and locals().get("matrix"):
+					node.matrix = matrix
 				else:
 					node.translation = [ position.x, position.y, position.z ]
 					node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1562,6 +1615,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			# nodes either have a local transform or a skin, never both
 			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
+			elif not animated and locals().get("matrix"):
+				node.matrix = matrix
 			else:
 				node.translation = [ position.x, position.y, position.z ]
 				node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1585,6 +1640,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			# nodes either have a local transform or a skin, never both
 			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
+			elif not animated and locals().get("matrix"):
+				node.matrix = matrix
 			else:
 				node.translation = [ position.x, position.y, position.z ]
 				node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1607,6 +1664,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			# nodes either have a local transform or a skin, never both
 			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
+			elif not animated and locals().get("matrix"):
+				node.matrix = matrix
 			else:
 				node.translation = [ position.x, position.y, position.z ]
 				node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
@@ -1629,6 +1688,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			# nodes either have a local transform or a skin, never both
 			if getattr(model, "bones", None) and hasattr(object, "physique") and object.physique:
 				node.skin = 0
+			elif not animated and locals().get("matrix"):
+				node.matrix = matrix
 			else:
 				node.translation = [ position.x, position.y, position.z ]
 				node.rotation = [ rotation.x, rotation.y, rotation.z, rotation.w ]
