@@ -21,11 +21,11 @@ By default, if you run this application it will not produce results. You need to
 -s, --server         Decode server data
 -e, --effect         Decode effects
 -p, --png            Encode textures as PNG
--g, --jobs           Number of multiprocessing jobs
 -g, --gltf           Encode models as GLTF
 -b, --glb            Encode models as GLB (GLTF binary)
+-j, --jobs           Number of multiprocessing jobs
     --godot          Apply Godot-specific hints to GLTF output
-    --json           Encode models as JSON
+    --debug          Additional debug data
 ```
 
 ```sh
@@ -46,8 +46,8 @@ uv run -m app.main -i "/home/user/Games/Priston Tale" -o /home/user/Games/PT_dec
 	  that gives clothing variants the biped animations (see
 	  `docs/inx-motion-metadata.md`)
 * Decode SMD / SMB model files
+* Encode effects as JSON
 * Encode textures as PNG
-* Encode models as JSON (internal data structure)
 * Encode models as GLTF / GLB
 
 ### Server

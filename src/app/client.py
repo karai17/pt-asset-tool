@@ -1,4 +1,4 @@
-import multiprocessing as mp
+import multiprocess as mp
 import os
 
 from argparse import Namespace
@@ -113,47 +113,25 @@ def _referenced_models(inxbucket: list, args: Namespace) -> set[str]:
 	return referenced
 
 
-def _parallel_map(worker, jobs: list[tuple], processes: int) -> None:
-	if processes <= 1 or len(jobs) < 2:
-		for job in jobs:
-			worker(job)
-		return
-
-	try:
-		context = mp.get_context("fork")
-	except ValueError:
-		context = mp.get_context()
-
-	with context.Pool(processes=processes) as pool:
-		for _ in pool.imap_unordered(worker, jobs, chunksize=1):
-			pass
-
-
-def _patch_bmp_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = bmp.patch(inpath)
-	_encode_image(outpath, fdata, args)
-
-
 def patch_bmp(bucket: list, args: Namespace) -> None:
 	"""Patch all of the BMP files."""
 	print(f"Patching {len(bucket)} BMP files...")
 	t0 = now()
 
-	_parallel_map(_patch_bmp_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = bmp.patch(inpath)
+		_encode_image(outpath, fdata, args)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Patched BMP files in {ftime(t0, t1)} seconds.")
-
-
-def _patch_tga_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = tga.patch(inpath)
-	_encode_image(outpath, fdata, args)
 
 
 def patch_tga(bucket: list, args: Namespace) -> None:
@@ -161,23 +139,20 @@ def patch_tga(bucket: list, args: Namespace) -> None:
 	print(f"Patching {len(bucket)} TGA files...")
 	t0 = now()
 
-	_parallel_map(_patch_tga_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = tga.patch(inpath)
+		_encode_image(outpath, fdata, args)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Patched TGA files in {ftime(t0, t1)} seconds.")
-
-
-def _patch_wav_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = wav.patch(inpath)
-
-	root, ext = os.path.splitext(outpath)
-	outpath = Path(root + ".wav")
-	outpath.parent.mkdir(exist_ok=True, parents=True)
-	with outpath.open("wb") as f:
-		f.write(fdata)
 
 
 def patch_wav(bucket: list, args: Namespace) -> None:
@@ -185,35 +160,25 @@ def patch_wav(bucket: list, args: Namespace) -> None:
 	print(f"Patching {len(bucket)} WAV files...")
 	t0 = now()
 
-	_parallel_map(_patch_wav_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = wav.patch(inpath)
+
+		root, ext = os.path.splitext(outpath)
+		outpath = Path(root + ".wav")
+		outpath.parent.mkdir(exist_ok=True, parents=True)
+		with outpath.open("wb") as f:
+			f.write(fdata)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Patched WAV files in {ftime(t0, t1)} seconds.")
-
-
-def _decode_inx_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = inx.decode(inpath, args.input)
-
-	if not fdata:
-		print(f"Invalid INX file: {filepath}")
-		return
-
-	root, _ = os.path.splitext(outpath)
-
-	if args.json:
-		json.encode(Path(root + ".json"), fdata)
-	_compose_model_opacity(fdata, args)
-	if args.gltf or args.glb:
-		doc = gltf.build(fdata, args, Path(outpath))
-
-		if doc is not None:
-			if args.gltf:
-				gltf.write(Path(root + ".gltf"), doc)
-			if args.glb:
-				gltf.write(Path(root + ".glb"), doc)
 
 
 def decode_inx(bucket: list, args: Namespace) -> None:
@@ -221,60 +186,77 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 	print(f"Decoding {len(bucket)} INX files...")
 	t0 = now()
 
-	_parallel_map(_decode_inx_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = inx.decode(inpath, args.input)
+
+		if not fdata:
+			print(f"Invalid INX file: {filepath}")
+			return
+
+		root, _ = os.path.splitext(outpath)
+
+		if args.debug:
+			json.encode(Path(root + ".json"), fdata)
+		_compose_model_opacity(fdata, args)
+		if args.gltf or args.glb:
+			doc = gltf.build(fdata, args, Path(outpath))
+
+			if doc is not None:
+				if args.gltf:
+					gltf.write(Path(root + ".gltf"), doc)
+				if args.glb:
+					gltf.write(Path(root + ".glb"), doc)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Decoded INX files in {ftime(t0, t1)} seconds.")
 
 
-def _decode_smd_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = smd.decode(inpath)
-
-	if not fdata:
-		print(f"Invalid SMD file: {filepath}")
-		return
-
-	root, _ = os.path.splitext(outpath)
-
-	if args.json:
-		json.encode(Path(root + ".json"), fdata)
-	_compose_model_opacity(fdata, args)
-	if args.gltf or args.glb:
-		doc = gltf.build(fdata, args, Path(outpath))
-
-		if doc is not None:
-			if args.gltf:
-				gltf.write(Path(root + ".gltf"), doc)
-			if args.glb:
-				gltf.write(Path(root + ".glb"), doc)
-
-
 def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 	"""Decode SMD model files."""
-	referenced = _referenced_models(inxbucket, args)
-	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
 	print(f"Decoding {len(bucket)} SMD files...")
 	t0 = now()
 
-	_parallel_map(_decode_smd_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = smd.decode(inpath)
+
+		if not fdata:
+			print(f"Invalid SMD file: {filepath}")
+			return
+
+		root, _ = os.path.splitext(outpath)
+
+		if args.debug:
+			json.encode(Path(root + ".json"), fdata)
+		_compose_model_opacity(fdata, args)
+		if args.gltf or args.glb:
+			doc = gltf.build(fdata, args, Path(outpath))
+
+			if doc is not None:
+				if args.gltf:
+					gltf.write(Path(root + ".gltf"), doc)
+				if args.glb:
+					gltf.write(Path(root + ".glb"), doc)
+
+	referenced = _referenced_models(inxbucket, args)
+	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Decoded SMD files in {ftime(t0, t1)} seconds.")
-
-
-def _decode_part_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = part.decode(inpath)
-
-	root, _ = os.path.splitext(outpath)
-
-	if args.json:
-		json.encode(Path(root + ".json"), fdata)
 
 
 def decode_part(bucket: list, args: Namespace) -> None:
@@ -282,22 +264,22 @@ def decode_part(bucket: list, args: Namespace) -> None:
 	print(f"Decoding {len(bucket)} particle scripts...")
 	t0 = now()
 
-	_parallel_map(_decode_part_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = part.decode(inpath)
+
+		root, _ = os.path.splitext(outpath)
+		json.encode(Path(root + ".json"), fdata)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Decoded particle scripts in {ftime(t0, t1)} seconds.")
-
-
-def _decode_luascript_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = luascript.decode(inpath)
-
-	root, _ = os.path.splitext(outpath)
-
-	if args.json:
-		json.encode(Path(root + ".json"), fdata)
 
 
 def decode_luascript(bucket: list, args: Namespace) -> None:
@@ -305,22 +287,22 @@ def decode_luascript(bucket: list, args: Namespace) -> None:
 	print(f"Decoding {len(bucket)} effect scripts...")
 	t0 = now()
 
-	_parallel_map(_decode_luascript_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = luascript.decode(inpath)
+
+		root, _ = os.path.splitext(outpath)
+		json.encode(Path(root + ".json"), fdata)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Decoded effect scripts in {ftime(t0, t1)} seconds.")
-
-
-def _decode_animdata_file(job: tuple) -> None:
-	filepath, args = job
-	inpath = os.path.join(args.input, filepath)
-	outpath = os.path.join(args.output, filepath)
-	fdata = animdata.decode(inpath)
-
-	root, _ = os.path.splitext(outpath)
-
-	if args.json:
-		json.encode(Path(root + ".json"), fdata)
 
 
 def decode_animdata(bucket: list, args: Namespace) -> None:
@@ -328,7 +310,19 @@ def decode_animdata(bucket: list, args: Namespace) -> None:
 	print(f"Decoding {len(bucket)} animation data files...")
 	t0 = now()
 
-	_parallel_map(_decode_animdata_file, [(filepath, args) for filepath in bucket], args.jobs)
+	def _worker(job: tuple) -> None:
+		filepath, args = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		fdata = animdata.decode(inpath)
+
+		root, _ = os.path.splitext(outpath)
+		json.encode(Path(root + ".json"), fdata)
+
+	jobs = [(filepath, args) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
 
 	t1 = now()
 	print(f"Decoded animation data files in {ftime(t0, t1)} seconds.")
