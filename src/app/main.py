@@ -15,6 +15,10 @@ buckets = {
 	# model
 	".inx": [],
 	".smd": [],
+	# effect
+	".part": [],
+	".lua": [],
+	".ini": [],
 	# server
 	".spc": [],
 	".spm": [],
@@ -33,6 +37,7 @@ if __name__ == "__main__":
 	parser.add_argument("-a", "--audio", action="store_true")
 	parser.add_argument("-m", "--model", action="store_true")
 	parser.add_argument("-s", "--server", action="store_true")
+	parser.add_argument("-e", "--effect", action="store_true")
 	parser.add_argument("-p", "--png", action="store_true")
 	parser.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
 	parser.add_argument("-g", "--gltf", action="store_true")
@@ -69,6 +74,13 @@ if __name__ == "__main__":
 	if args.model:
 		decode_inx(buckets[".inx"], args)
 		decode_smd(buckets[".smd"], buckets[".inx"], args)
+	if args.effect:
+		decode_part(buckets[".part"], args)
+		decode_luascript([f for f in buckets[".lua"]], args)
+		decode_animdata(
+			[f for f in buckets[".ini"] if f.startswith("Effect") and
+				("AnimationData" in f or "ImageData" in f or "ObjAnimationData" in f or "Etc" in f)],
+			args)
 	if args.server:
 		decode_stages(buckets[".spc"], buckets[".spm"], buckets[".spp"], args)
 		decode_inf(buckets[".inf"], args)

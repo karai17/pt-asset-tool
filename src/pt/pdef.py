@@ -314,6 +314,119 @@ class PTActorModel:
 	talk_motion_rate_table: list[list[int]] = field(default_factory=list)
 
 
+"""EFFECTS"""
+
+
+@dataclass
+class PTParticleKeyframes:
+	min: float | int | tuple = 0
+	max: float | int | tuple = 0
+	fade: bool = False
+	time: float = 0
+
+
+@dataclass
+class PTParticleEvent:
+	event: str | None = None
+	velocity_flag: int = 0
+	frames: list[PTParticleKeyframes] = field(default_factory=list)
+
+
+@dataclass
+class PTParticleSequence:
+	name: str | None = None
+	texture: str | None = None
+	particle_type: str = "TYPE_ONE"
+	blend_mode: str = "BLEND_ALPHA"
+	emit_rate: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	num_particles: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	loops: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	lifetime: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	delay: float = 0
+	spawn_dir: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	emit_radius: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	gravity: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	events: list[PTParticleEvent] = field(default_factory=list)
+
+
+@dataclass
+class PTParticleSystem:
+	filename: str | None = None
+	name: str | None = None
+	version: float = 1
+	position: PTParticleKeyframes = field(default_factory=PTParticleKeyframes)
+	sequences: list[PTParticleSequence] = field(default_factory=list)
+
+
+@dataclass
+class PTEffectController:
+	type: str | None = None
+	position: PTVector3 | tuple | None = None
+	mesh_name: str | None = None
+	bone_name: str | None = None
+	max_frame: float = 0
+	loop: int = 0
+	start_delay_time: float = 0
+	end_time: float | tuple | None = None
+	color: tuple | None = None
+	size: tuple | None = None
+	texture_name: str | None = None
+	ani_texture_count: int = 0
+	ani_texture_delay: float = 0
+	blend_type: str | None = None
+	spawn_bounding_box: tuple | None = None
+	spawn_bounding_sphere: tuple | None = None
+	spawn_bounding_doughnut: tuple | None = None
+	particle_num: float = 0
+	emit_rate: float = 0
+	axial_pos: tuple | None = None
+	velocity: tuple | None = None
+	particle_type: str | None = None
+	velocity_type: str | None = None
+	events: list[PTParticleEvent] = field(default_factory=list)
+
+
+@dataclass
+class PTEffectScript:
+	filename: str | None = None
+	parent_position: PTVector3 | None = None
+	controllers: list[PTEffectController] = field(default_factory=list)
+
+
+@dataclass
+class PTAnimFrame:
+	image_num: int = 0
+	delay: int = 0
+	alpha: int = 0
+	size_width: int | None = None
+	size_height: int | None = None
+	angle: float | None = None
+	color: tuple | None = None
+
+
+@dataclass
+class PTAnimSequenceData:
+	filename: str | None = None
+	data_file: str | None = None
+	blend_type: int = 0
+	start_blend_value: int = 0
+	frames: list[PTAnimFrame] = field(default_factory=list)
+
+
+@dataclass
+class PTAnimImageData:
+	filename: str | None = None
+	texture_name: str | None = None
+	texture_count: int = 0
+
+
+@dataclass
+class PTAnimData:
+	filename: str | None = None
+	image_data: list[PTAnimImageData] = field(default_factory=list)
+	sequences: list[PTAnimSequenceData] = field(default_factory=list)
+
+
 """SERVER STAGES"""
 
 

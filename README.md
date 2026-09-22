@@ -19,6 +19,7 @@ By default, if you run this application it will not produce results. You need to
 -a, --audio          Patch audio
 -m, --model          Decode models
 -s, --server         Decode server data
+-e, --effect         Decode effects
 -p, --png            Encode textures as PNG
 -g, --jobs           Number of multiprocessing jobs
 -g, --gltf           Encode models as GLTF

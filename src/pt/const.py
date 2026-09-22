@@ -509,6 +509,46 @@ MTL_FORM_BLEND = [                                       # MaterialFormBlend
 	[ "BLEND_LAMP:",     4 ]
 ]
 
+# HoNewParticleEmitterTokenizer::BlendingModes[6] (HoNewParticle.cpp:695-702)
+PARTICLE_BLEND_MODES = [
+	[ "BLEND_ALPHA",     1 ],
+	[ "BLEND_COLOR",     2 ],
+	[ "BLEND_ADDCOLOR",  5 ],
+	[ "BLEND_SHADOW",    3 ],
+	[ "BLEND_LAMP",      4 ],
+	[ "BLEND_INVSHADOW", 6 ]
+]
+
+# HoNewParticleEmitterTokenizer::ParticleTypes[4] (HoNewParticle.cpp:705-710)
+PARTICLE_TYPES = [
+	[ "TYPE_ONE",   1 ],
+	[ "TYPE_TWO",   2 ],
+	[ "TYPE_THREE", 3 ],
+	[ "TYPE_FOUR",  4 ]
+]
+
+# PiScript::RegisterCommand (PiScript.cpp:38-71)
+EFFECT_LUA_COMMANDS = [
+	"Begin", "End", "InitPos", "InitColor", "InitSize",
+	"InitMeshName", "InitMaxFrame", "InitLoop", "InitTextureName",
+	"InitAniTextureName", "InitStartDelayTime", "InitEndTime",
+	"EventColor", "EventFadeColor", "EventSize", "EventFadeSize",
+	"InitSpawnBoundingBox", "InitSpawnBoundingSphere",
+	"InitSpawnBoundingDoughnut", "InitParticleType", "InitVelocityType",
+	"InitParticleNum", "InitEmitRate", "InitVelocity", "InitAxialPos",
+	"InitBlendType"
+]
+
+# HoEffectMain::LuaInitBlendType (HoEffectMain.cpp:437-461)
+EFFECT_BLEND_TYPES = [
+	[ "Lamp",     4 ],
+	[ "Shadow",   3 ],
+	[ "Color",    2 ],
+	[ "AddColor", 5 ],
+	[ "Alpha",    1 ],
+	[ "InvShadow", 6 ]
+]
+
 
 MONSTER_NAMES = [
 	# MONSTERS

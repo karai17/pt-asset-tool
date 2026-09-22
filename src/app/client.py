@@ -4,7 +4,7 @@ import os
 from argparse import Namespace
 from pathlib import Path
 
-from pt.decode import inx, smd
+from pt.decode import inx, smd, part, luascript, animdata
 from pt.encode import json, gltf, png
 from pt.patch import bmp, tga, wav
 from pt.utils import decode_string
@@ -263,3 +263,72 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 
 	t1 = now()
 	print(f"Decoded SMD files in {ftime(t0, t1)} seconds.")
+
+
+def _decode_part_file(job: tuple) -> None:
+	filepath, args = job
+	inpath = os.path.join(args.input, filepath)
+	outpath = os.path.join(args.output, filepath)
+	fdata = part.decode(inpath)
+
+	root, _ = os.path.splitext(outpath)
+
+	if args.json:
+		json.encode(Path(root + ".json"), fdata)
+
+
+def decode_part(bucket: list, args: Namespace) -> None:
+	"""Decode .part particle scripts."""
+	print(f"Decoding {len(bucket)} particle scripts...")
+	t0 = now()
+
+	_parallel_map(_decode_part_file, [(filepath, args) for filepath in bucket], args.jobs)
+
+	t1 = now()
+	print(f"Decoded particle scripts in {ftime(t0, t1)} seconds.")
+
+
+def _decode_luascript_file(job: tuple) -> None:
+	filepath, args = job
+	inpath = os.path.join(args.input, filepath)
+	outpath = os.path.join(args.output, filepath)
+	fdata = luascript.decode(inpath)
+
+	root, _ = os.path.splitext(outpath)
+
+	if args.json:
+		json.encode(Path(root + ".json"), fdata)
+
+
+def decode_luascript(bucket: list, args: Namespace) -> None:
+	"""Decode NewEffect .lua effect scripts."""
+	print(f"Decoding {len(bucket)} effect scripts...")
+	t0 = now()
+
+	_parallel_map(_decode_luascript_file, [(filepath, args) for filepath in bucket], args.jobs)
+
+	t1 = now()
+	print(f"Decoded effect scripts in {ftime(t0, t1)} seconds.")
+
+
+def _decode_animdata_file(job: tuple) -> None:
+	filepath, args = job
+	inpath = os.path.join(args.input, filepath)
+	outpath = os.path.join(args.output, filepath)
+	fdata = animdata.decode(inpath)
+
+	root, _ = os.path.splitext(outpath)
+
+	if args.json:
+		json.encode(Path(root + ".json"), fdata)
+
+
+def decode_animdata(bucket: list, args: Namespace) -> None:
+	"""Decode HoAnimData image/sequence INI files."""
+	print(f"Decoding {len(bucket)} animation data files...")
+	t0 = now()
+
+	_parallel_map(_decode_animdata_file, [(filepath, args) for filepath in bucket], args.jobs)
+
+	t1 = now()
+	print(f"Decoded animation data files in {ftime(t0, t1)} seconds.")
