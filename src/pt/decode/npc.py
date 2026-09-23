@@ -1,5 +1,5 @@
 from pt.pdef import *
-from pt.utils import decode_string, split_config_tokens
+from pt.utils import atoi, atof, decode_string, split_config_tokens
 from pt.const import NPC
 
 
@@ -38,7 +38,7 @@ def decode(path: str) -> PTServerCharacter:
 				case NPC.szModelName:
 					character.model = decode_string(segments[0])
 				case NPC.Level:
-					character.level = int(segments[0])
+					character.level = atoi(segments[0])
 				case NPC.szName:
 					character.name = decode_string(segments[0])
 				case NPC.Name:
@@ -62,20 +62,20 @@ def decode(path: str) -> PTServerCharacter:
 					# *직업전환; no argument = rank 0 (smCharDecode also maps the
 					# rank keywords *두목 / *계급 to wPlayClass[0],
 					# fileread.cpp:126278-126300)
-					character.job_master = int(segments[0]) if segments else 0
+					character.job_master = atoi(segments[0])
 				case NPC.EventNPC:
-					character.event = int(segments[0]) if segments else 0
+					character.event = atoi(segments[0])
 				case NPC.EventCode:
-					character.event_code = int(segments[0])
+					character.event_code = atoi(segments[0])
 				case NPC.EventInfo:
-					character.event_info = int(segments[0])
+					character.event_info = atoi(segments[0])
 				case NPC.Rank:
 					# *계급 / *두목 map to wPlayClass[0]
-					character.rank = int(segments[0])
+					character.rank = atoi(segments[0])
 				case NPC.SizeLevel:
 					character.size = decode_string(segments[0])
 				case NPC.Size:
-					character.model_scale = float(segments[0])
+					character.model_scale = atof(segments[0])
 				case NPC.SoundEffect:
 					character.sound = decode_string(segments[0])
 				case NPC.WareHouseMaster:
@@ -105,31 +105,31 @@ def decode(path: str) -> PTServerCharacter:
 				case NPC.WingQuestNpc1 | NPC.WingQuestNpc2 | NPC.WingQuestNpc2_Typo:
 					# *윙퀘스트 = 1 / *퀘스트이벤트 = 2 when the optional number
 					# is omitted (fileread.cpp:5251-5268)
-					value = int(segments[0]) if segments else 0
+					value = atoi(segments[0])
 					if key == NPC.WingQuestNpc1:
 						character.WingQuestNpc1 = value
 					else:
 						character.WingQuestNpc2 = value
 				case NPC.StarPointNpc:
-					character.StarPointNpc = int(segments[0]) if segments else 0
+					character.StarPointNpc = atoi(segments[0])
 				case NPC.GiveMoneyNpc:
 					character.GiveMoneyNpc = True
 				case NPC.TelePortNpc:
-					character.teleport_master = int(segments[0]) if segments else 0
+					character.teleport_master = atoi(segments[0])
 				case NPC.BlessCastleNPC:
-					character.BlessCastleNPC = int(segments[0]) if segments else 0
+					character.BlessCastleNPC = atoi(segments[0])
 				case NPC.PollingNpc:
-					character.PollingNpc = int(segments[0]) if segments else 0
+					character.PollingNpc = atoi(segments[0])
 				case NPC.szMediaPlayNPC_Title:
 					character.media_title = decode_string(segments[0])
 				case NPC.szMediaPlayNPC_Path:
 					character.media_path = decode_string(segments[0])
 				case NPC.OpenCount:
-					character.find_word = int(segments[0])
-					character.exit_number = int(segments[1])
+					character.find_word = atoi(segments[0])
+					character.exit_number = atoi(segments[1])
 				case NPC.QuestCode:
-					character.quest_code = int(segments[0])
-					character.quest_param = int(segments[1])
+					character.quest_code = atoi(segments[0])
+					character.quest_param = atoi(segments[1])
 				case NPC.szNextFile:
 					character.zhoon_path = decode_string(segments[0])
 				case _:

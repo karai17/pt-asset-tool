@@ -206,7 +206,7 @@ class smLIGHT3D(LittleEndianStructure):
 # Reference: smType.h:408 struct smMOTIONINFO (MOTION_TOOL_MAX = 52,
 # MOTION_SKIL_MAX = 8, smType.h:386-390)
 class smMOTIONINFO(LittleEndianStructure):
-	# 117 bytes (120?)
+	# 120 bytes
 	_fields_ = [
 		("State", c_uint32),
 		("MotionKeyWord_1", c_uint32),
@@ -230,7 +230,7 @@ class smMOTIONINFO(LittleEndianStructure):
 # No such struct exists in the original source; the shipped client reads
 # smMODELINFO (120-byte entries) and misparses EX files in exactly this way.
 class smMOTIONINFO_EX(LittleEndianStructure):
-	# 169 bytes (172?)
+	# 172 bytes
 	_fields_ = [
 		("State", c_uint32),
 		("MotionKeyWord_1", c_uint32),
@@ -465,7 +465,7 @@ class STG_START_POINT(LittleEndianStructure):
 
 # Reference: smPacket.h:644 struct smCHAR_INFO
 class smCHAR_INFO(LittleEndianStructure):
-	# 472 bytes
+	# 464 bytes
 	_fields_ = [
 		("szName", c_ubyte * 32),
 		("szModelName", c_ubyte * 64),

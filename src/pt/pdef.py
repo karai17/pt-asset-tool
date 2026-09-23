@@ -460,8 +460,8 @@ class PTServerSpawnCharacter:
 
 @dataclass
 class PTServerSpawnMonster:
-	spawn_interval_min: int = 0
-	spawn_interval_max: int = 0
+	spawn_interval: int = 0
+	spawn_interval_time: int = 0
 	max_monsters: int = 0
 	max_monsters_per_point: int = 0
 	monsters: list[PTServerStageMonster] = field(default_factory=list)

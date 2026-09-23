@@ -1,4 +1,5 @@
 import math
+import re
 import numpy as np
 import numpy.typing as npt
 import os
@@ -42,6 +43,28 @@ def decode_string(cstring: Array[c_byte] | bytes) -> str:
 		except Exception:
 			continue
 	raise Exception("Unknown text encoding.")
+
+
+"""NUMERIC PARSING"""
+
+
+def atoi(value: bytes | str) -> int:
+	"""C atoi semantics (the engine atoi/atofs every config token): parse the
+	leading decimal integer, truncate and ignore the rest, return 0 when the
+	token starts with no digits (e.g. b'0;' -> 0, b'1.5' -> 1, b'abc' -> 0)."""
+	if isinstance(value, bytes):
+		value = value.decode("ascii", errors="ignore")
+	match = re.match(r"[-+]?\d+", value)
+	return int(match.group()) if match else 0
+
+
+def atof(value: bytes | str) -> float:
+	"""C atof semantics: parse the leading numeric prefix and ignore the rest
+	(e.g. '0;' -> 0.0, b'5%' -> 5.0, b'abc' -> 0.0)."""
+	if isinstance(value, bytes):
+		value = value.decode("ascii", errors="ignore")
+	match = re.match(r"[-+]?\d*\.?\d+", value)
+	return float(match.group()) if match else 0.0
 
 
 def get_filename(path: str, sep: str = "\\") -> tuple[str, str]:

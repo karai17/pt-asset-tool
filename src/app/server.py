@@ -131,8 +131,8 @@ def decode_stages(spcbucket: list[str], spmbucket: list[str], sppbucket: list[st
 			if stage in spmdata:
 				data = spmdata[stage]
 				s.max_monsters = data.max_monsters
-				s.spawn_interval_min = data.spawn_interval_min
-				s.spawn_interval_max = data.spawn_interval_max
+				s.spawn_interval = data.spawn_interval
+				s.spawn_interval_time = data.spawn_interval_time
 				s.max_monsters_per_point = data.max_monsters_per_point
 				s.monsters = data.monsters
 				s.bosses = data.bosses

@@ -2,6 +2,7 @@ import os
 import re
 
 from pt.pdef import *
+from pt.utils import atof
 from pt.const import PARTICLE_BLEND_MODES, PARTICLE_TYPES
 
 # HoNewParticleResMgr::LoadScript (HoNewParticleMgr.cpp:53-88) reads the whole
@@ -65,12 +66,6 @@ def _tokenize(text: str) -> list[tuple[str, str]]:
 	return tokens
 
 
-def _atof(value: str) -> float:
-	"""C atof semantics: parse the leading numeric prefix (e.g. '0;' -> 0)."""
-	match = re.match(r"[-+]?\d*\.?\d+", value)
-	return float(match.group()) if match else 0.0
-
-
 def _process_number(tokens: list[tuple[str, str]], i: int) -> tuple[PTParticleKeyframes, int]:
 	"""HoNewParticleEmitterTokenizer::ProcessNumber (HoNewParticle.cpp:712-772):
 	either Random(min,max) into a min/max pair or a single number into both."""
@@ -79,12 +74,12 @@ def _process_number(tokens: list[tuple[str, str]], i: int) -> tuple[PTParticleKe
 	kind, value = tokens[i]
 	if kind == "Text" and value.upper() == "RANDOM":
 		i += 2  # skip ( and land on min
-		number.min = _atof(tokens[i][1])
+		number.min = atof(tokens[i][1])
 		i += 2  # skip , and land on max
-		number.max = _atof(tokens[i][1])
+		number.max = atof(tokens[i][1])
 		i += 2  # skip Random's closing paren
 	elif kind == "Text" and re.match(r"[-+]?\d", value):
-		number.min = number.max = _atof(value)
+		number.min = number.max = atof(value)
 		i += 1
 
 	# a non-number is left unconsumed, as the engine's failed ProcessNumber
