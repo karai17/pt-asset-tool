@@ -35,8 +35,10 @@ def decode_material_name(script_flags, blend_flag):
 		if script_flags & flag[1] == flag[1]:
 			name = name + flag[0]
 
+	# BlendType is a SMMAT_BLEND_* enum stored verbatim
+	# (smRead3d.cpp:348-352), not a bitmask.
 	for flag in MTL_FORM_BLEND:
-		if blend_flag & flag[1] == flag[1]:
+		if blend_flag == flag[1]:
 			name = name + flag[0]
 			break
 
@@ -71,19 +73,20 @@ def decode_mesh_state(script_state: int, transparency: float) -> int:
 	return mesh_state
 
 
-# Rebuild ASE texture map names from the flag bits parsed out of *MAP_NAME
-# strings at import (smRead3d.cpp:367-384: BsStageScript values are D3DTOP_
-# enums, BitmapFormState is the szMapFormScript table index).
+# Rebuild ASE texture map names from the values parsed out of *MAP_NAME
+# strings at import (smRead3d.cpp:367-384: TextureStageState is the D3DTOP
+# enum from BsStageScript, TextureFormState is the szMapFormScript array
+# index). Both are stored verbatim, so the lookup is by exact value.
 def decode_texture_map_name(stage_flag, form_flag):
 	name = ""
 
 	for flag in STAGE_SCRIPT:
-		if stage_flag & flag[1] == flag[1]:
+		if stage_flag == flag[1]:
 			name = name + flag[0]
 			break
 
 	for flag in FORM_SCRIPT:
-		if form_flag & flag[1] == flag[1]:
+		if form_flag == flag[1]:
 			name = name + flag[0]
 			break
 

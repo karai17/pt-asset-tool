@@ -221,6 +221,9 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 
 def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 	"""Decode SMD model files."""
+	referenced = _referenced_models(inxbucket, args)
+	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
+
 	print(f"Decoding {len(bucket)} SMD files...")
 	t0 = now()
 
@@ -248,8 +251,6 @@ def decode_smd(smdbucket: list, inxbucket: list, args: Namespace) -> None:
 				if args.glb:
 					gltf.write(Path(root + ".glb"), doc)
 
-	referenced = _referenced_models(inxbucket, args)
-	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
 	jobs = [(filepath, args) for filepath in bucket]
 	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
 	with ctx.Pool(processes=args.jobs) as pool:

@@ -449,6 +449,9 @@ CHRMOTION_STATE = {
 }
 
 
+# The importer AND-matches the ASE name against these strings and stores
+# BsStageScript[cnt] verbatim (smRead3d.cpp:370-374) - the file carries the
+# D3DTOP enum, so regenerating the name is an exact-value lookup.
 STAGE_SCRIPT = [                                         # szMapStageScript, BsStageScript
 	[ "BS_MODULATE:",     4 ],
 	[ "BS_MODULATE2X:",   5 ],
@@ -459,26 +462,29 @@ STAGE_SCRIPT = [                                         # szMapStageScript, BsS
 	[ "BS_SUBTRACT:",    10 ]
 ]
 
+# The importer stores the szMapFormScript array index, NOT the matched flag
+# (BitmapFormState = cnt, smRead3d.cpp:376-379); the indices equal the
+# smTEXSTATE_FS_* render enums the renderer switches on (smType.h:501-523).
 FORM_SCRIPT = [                                          # szMapFormScript
-	[ "FS_NONE:",         1 ],
-	[ "FS_FORMX:",        2 ],
-	[ "FS_FORMY:",        3 ],
-	[ "FS_FORMZ:",        4 ],
-	[ "FS_SCROLL:",       5 ],
-	[ "FS_REFLEX:",       6 ],
-	[ "FS_SCROLL2:",      7 ],
-	[ "FS_SCROLL3:",      8 ],
-	[ "FS_SCROLL4:",      9 ],
-	[ "FS_SCROLL5:",     10 ],
-	[ "FS_SCROLL6:",     11 ],
-	[ "FS_SCROLL7:",     12 ],
-	[ "FS_SCROLL8:",     13 ],
-	[ "FS_SCROLL9:",     14 ],
-	[ "FS_SCROLL10:",    15 ],
-	[ "FS_SCROLLSLOW1:", 16 ],
-	[ "FS_SCROLLSLOW2:", 17 ],
-	[ "FS_SCROLLSLOW3:", 18 ],
-	[ "FS_SCROLLSLOW4:", 19 ]
+	[ "FS_NONE:",         0 ],
+	[ "FS_FORMX:",        1 ],
+	[ "FS_FORMY:",        2 ],
+	[ "FS_FORMZ:",        3 ],
+	[ "FS_SCROLL:",       4 ],
+	[ "FS_REFLEX:",       5 ],
+	[ "FS_SCROLL2:",      6 ],
+	[ "FS_SCROLL3:",      7 ],
+	[ "FS_SCROLL4:",      8 ],
+	[ "FS_SCROLL5:",      9 ],
+	[ "FS_SCROLL6:",     10 ],
+	[ "FS_SCROLL7:",     11 ],
+	[ "FS_SCROLL8:",     12 ],
+	[ "FS_SCROLL9:",     13 ],
+	[ "FS_SCROLL10:",    14 ],
+	[ "FS_SCROLLSLOW1:", 15 ],
+	[ "FS_SCROLLSLOW2:", 16 ],
+	[ "FS_SCROLLSLOW3:", 17 ],
+	[ "FS_SCROLLSLOW4:", 18 ]
 ]
 
 MTL_FORM_SCRIPT = [                                      # MaterialFormScript
@@ -501,6 +507,8 @@ MTL_FORM_SCRIPT = [                                      # MaterialFormScript
 	[ "orgwater:",      int.from_bytes(b"\x01\x00\x00") ]
 ]
 
+# The importer stores the dwScriptCode verbatim (smRead3d.cpp:348-352), a
+# SMMAT_BLEND_* enum, so regenerating the name is an exact-value lookup.
 MTL_FORM_BLEND = [                                       # MaterialFormBlend
 	[ "BLEND_ALPHA:",    1 ],
 	[ "BLEND_COLOR:",    2 ],
