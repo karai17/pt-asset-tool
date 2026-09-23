@@ -42,6 +42,7 @@ if __name__ == "__main__":
 	parser.add_argument("-j", "--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
 	parser.add_argument("-g", "--gltf", action="store_true")
 	parser.add_argument("-b", "--glb", action="store_true")
+	parser.add_argument("--ase", action="store_true")
 	parser.add_argument("--godot", action="store_true")
 	parser.add_argument("--debug", action="store_true")
 	args = parser.parse_args()
@@ -74,6 +75,8 @@ if __name__ == "__main__":
 	if args.model:
 		decode_inx(buckets[".inx"], args)
 		decode_smd(buckets[".smd"], buckets[".inx"], args)
+	if args.ase:
+		encode_ase(buckets[".inx"], buckets[".smd"], args)
 	if args.effect:
 		decode_part(buckets[".part"], args)
 		decode_luascript([f for f in buckets[".lua"]], args)

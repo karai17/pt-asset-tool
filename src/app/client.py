@@ -4,7 +4,8 @@ import os
 from argparse import Namespace
 from pathlib import Path
 
-from pt.decode import inx, smd, part, luascript, animdata
+from pt.decode import inx, smd, part, luascript, animdata, ase_smd
+from pt.encode import ase
 from pt.encode import json, gltf, png
 from pt.patch import bmp, tga, wav
 from pt.utils import decode_string
@@ -327,3 +328,38 @@ def decode_animdata(bucket: list, args: Namespace) -> None:
 
 	t1 = now()
 	print(f"Decoded animation data files in {ftime(t0, t1)} seconds.")
+
+
+def encode_ase(inxbucket: list, smdbucket: list, args: Namespace) -> None:
+	"""Encode decoded models as ASE files (the engine's own intermediate)."""
+	referenced = _referenced_models(inxbucket, args)
+	bucket = [filepath for filepath in smdbucket if filepath.casefold() not in referenced]
+
+	print(f"Encoding {len(inxbucket)} INX and {len(bucket)} SMD models as ASE...")
+	t0 = now()
+
+	def _worker(job: tuple) -> None:
+		filepath, args, is_inx = job
+		inpath = os.path.join(args.input, filepath)
+		outpath = os.path.join(args.output, filepath)
+		if is_inx:
+			fdata = inx.decode(inpath, args.input)
+		else:
+			fdata = smd.decode(inpath)
+
+		if not fdata:
+			print(f"Invalid model: {filepath}")
+			return
+
+		root, _ = os.path.splitext(outpath)
+		Path(root + ".ase").parent.mkdir(exist_ok=True, parents=True)
+		ase.encode(fdata, Path(root + ".ase"))
+
+	jobs = [(filepath, args, True) for filepath in inxbucket]
+	jobs += [(filepath, args, False) for filepath in bucket]
+	ctx = mp.get_context("fork") if hasattr(os, "fork") else mp.get_context()
+	with ctx.Pool(processes=args.jobs) as pool:
+		list(pool.imap_unordered(_worker, jobs, chunksize=1))
+
+	t1 = now()
+	print(f"Encoded ASE files in {ftime(t0, t1)} seconds.")
