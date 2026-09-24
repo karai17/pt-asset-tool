@@ -25,6 +25,7 @@ By default, if you run this application it will not produce results. You need to
 -b, --glb            Encode models as GLB (GLTF binary)
 -j, --jobs           Number of multiprocessing jobs
     --godot          Apply Godot-specific hints to GLTF output
+    --lod            Keep all model quality levels (default: high only)
     --debug          Additional debug data
 ```
 

@@ -57,6 +57,9 @@ class PTMotionMetadata:
 @dataclass
 class PTModelMetadata:
 	model_names: list[str] = field(default_factory=list)
+	# high/default/low quality groups (*정밀모양 / *보통모양 / *저질모양);
+	# model_names holds the selected subset, this records all three
+	model_lod_groups: dict[str, list[str]] = field(default_factory=dict)
 	animations: list[PTMotionMetadata] = field(default_factory=list)
 	talk_animations: list[PTMotionMetadata] = field(default_factory=list)
 	link_file: str | None = None
@@ -312,6 +315,8 @@ class PTActorModel:
 	sub_model_file: str | None = None
 	npc_motion_rate_table: list[int] = field(default_factory=list)
 	talk_motion_rate_table: list[list[int]] = field(default_factory=list)
+	# all three authored quality groups, regardless of which objects survived
+	lod_groups: dict[str, list[str]] | None = None
 
 
 """EFFECTS"""

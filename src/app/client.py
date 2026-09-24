@@ -191,7 +191,7 @@ def decode_inx(bucket: list, args: Namespace) -> None:
 		filepath, args = job
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
-		fdata = inx.decode(inpath, args.input)
+		fdata = inx.decode(inpath, args.input, lod=args.lod)
 
 		if not fdata:
 			print(f"Invalid INX file: {filepath}")
@@ -343,7 +343,7 @@ def encode_ase(inxbucket: list, smdbucket: list, args: Namespace) -> None:
 		inpath = os.path.join(args.input, filepath)
 		outpath = os.path.join(args.output, filepath)
 		if is_inx:
-			fdata = inx.decode(inpath, args.input)
+			fdata = inx.decode(inpath, args.input, lod=args.lod)
 		else:
 			fdata = smd.decode(inpath)
 

@@ -43,6 +43,7 @@ if __name__ == "__main__":
 	parser.add_argument("-g", "--gltf", action="store_true")
 	parser.add_argument("-b", "--glb", action="store_true")
 	parser.add_argument("--ase", action="store_true")
+	parser.add_argument("--lod", action="store_true")
 	parser.add_argument("--godot", action="store_true")
 	parser.add_argument("--debug", action="store_true")
 	args = parser.parse_args()

@@ -66,16 +66,26 @@ def read_modelinfo(path: str):
 	return None
 
 
-def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = True) -> tuple[PTModelMetadata, str]:
+def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = True, lod: bool = False) -> tuple[PTModelMetadata, str]:
 	metadata = PTModelMetadata()
 	motionfilename = decode_string(sm_modelinfo.szMotionFile)
 
-	# collect only high quality model names, cull the rest in the smd importer.
 	# smMODELINFO.HighModel / DefaultModel / LowModel are _MODELGROUPs filled
 	# from the *정밀모양 (high) / *보통모양 (default) / *저질모양 (low) ini keys
-	# (fileread.cpp:624-634, AddModelDecode case 6/7/8).
-	for i in range(sm_modelinfo.HighModel.ModelNameCnt):
-		metadata.model_names.append(decode_string(sm_modelinfo.HighModel.szModelName[i]))
+	# (fileread.cpp:624-634, AddModelDecode case 6/7/8). At render time the
+	# engine picks one group by view distance (character.cpp:7349-7355:
+	# default = DefaultModel, HighModel when dDist < VIEW_HIGH_DIST, LowModel
+	# when dDist > VIEW_MID_DIST); lod keeps every quality group's objects
+	# instead. All three groups are decoded regardless so the data is recorded.
+	for group_name, group in (("high", sm_modelinfo.HighModel), ("default", sm_modelinfo.DefaultModel), ("low", sm_modelinfo.LowModel)):
+		metadata.model_lod_groups[group_name] = [decode_string(group.szModelName[i]) for i in range(group.ModelNameCnt)]
+
+	if lod:
+		metadata.model_names = list(dict.fromkeys(
+			name for names in metadata.model_lod_groups.values() for name in names
+		))
+	else:
+		metadata.model_names = list(metadata.model_lod_groups["high"])
 
 	# loop through and decode motion info to build metadata. The engine walks
 	# the same range: for(i = CHRMOTION_EXT; i < MotionCount; i++)
@@ -232,7 +242,7 @@ def decode_metadata(sm_modelinfo, dirpath: str, root: str | None, chain: bool = 
 # INX files are raw sizeof(smMODELINFO) (67084) or sizeof(smMODELINFO_EX)
 # (95268) byte structs; the size check stands in for the engine's
 # smModelDecode dwFileLen == sizeof check (fileread.cpp:1019).
-def decode(path: str, root: str | None = None) -> PTActorModel | PTStageModel | None:
+def decode(path: str, root: str | None = None, lod: bool = False) -> PTActorModel | PTStageModel | None:
 	sm_modelinfo = read_modelinfo(path)
 	if sm_modelinfo is None:
 		return
@@ -240,7 +250,7 @@ def decode(path: str, root: str | None = None) -> PTActorModel | PTStageModel | 
 	segments = path.split(os.path.sep)
 	dirpath = os.path.sep.join(segments[:-1])
 
-	metadata, motionfilename = decode_metadata(sm_modelinfo, dirpath, root)
+	metadata, motionfilename = decode_metadata(sm_modelinfo, dirpath, root, lod=lod)
 
 	modelfilename = decode_string(sm_modelinfo.szModelFile)
 	modelpath = resolve_modelpath(dirpath, modelfilename, root, ".smd") if modelfilename else None

@@ -988,19 +988,19 @@ def decode_actor(sm_modelbuffer: BufferReader, sm_motionbuffer: BufferReader, me
 			object = PTActorObject()
 			object.name = decode_string(sm_object.NodeName)
 
-			# filter out objects we don't want such as low quality meshes.
-			# The engine resolves one model per name from the inx model groups;
-			# name matching is case-insensitive (_stricmp in
+			# filter out objects outside the requested quality groups. The engine
+			# resolves one model per name from the inx model groups; name
+			# matching is case-insensitive (_stricmp in
 			# smPAT3D::LinkObject / GetObjectFromName, smObj3d.cpp:2346 / 2389).
-			# Reference: smObj3d.cpp uses lstrcmpi / _stricmp: case-insensitive
-			found = False
-			if metadata:
+			# An empty group renders the whole pattern instead (character.cpp
+			# :7379-7399 RenderD3D fallback), so no names means keep everything.
+			found = True
+			if metadata and metadata.model_names:
+				found = False
 				for model_name in metadata.model_names:
 					if model_name.casefold() == object.name.casefold():
 						found = True
 						break
-			else:
-				found = True
 
 			# the object payload must always be consumed to keep the cursor in sync
 			# Reference: smObj3d.cpp::smOBJ3D::LoadFile reads the payload of every
@@ -1097,6 +1097,9 @@ def decode(modelpath: str, motionpath: str | None = None, metadata: PTModelMetad
 		model.sub_model_file = metadata.sub_model_file if metadata else None
 		model.npc_motion_rate_table = metadata.npc_motion_rate_table if metadata else None
 		model.talk_motion_rate_table = metadata.talk_motion_rate_table if metadata else None
+		# record the model quality groups even when the lod selection culls
+		# their objects - the debug JSON carries the full authored set
+		model.lod_groups = metadata.model_lod_groups if metadata else None
 		return model
 
 	print(f"Unknown file signature: {signature}")
