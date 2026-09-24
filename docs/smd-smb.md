@@ -518,6 +518,13 @@ skip it without using it.
 | 128 | 4 | `SerialNum` | `uint32` | |
 | 132 | 12 | `Diffuse` | `float[3]` | RGB diffuse color (`smFCOLOR`) |
 | 144 | 4 | `Transparency` | `float` | 0 = opaque; > 0.1 also feeds the water-height path at load |
+
+The on-disk struct has no ambient or specular color fields. Decoders/encoders
+that target formats requiring them fabricate values: `ambient` is copied from
+`Diffuse` and `specular` is hard-coded to 0.9 (`src/pt/decode/smd.py`,
+`src/pt/decode/ase_smd.py`). This is lossless with respect to the source data
+but is not authored color information — don't treat ambient/specular in
+downstream exports as source data.
 | 152 | 4 | `TextureSwap` | `int32` | |
 | 156 | 4 | `MatFrame` | `int32` | Material animation frame |
 | 160 | 4 | `TextureClip` | `int32` | TRUE allows texture clipping |
