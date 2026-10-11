@@ -4,6 +4,7 @@ __pycache__/
 
 # directories
 .local/
+.pi/
 .venv/
 
 # files

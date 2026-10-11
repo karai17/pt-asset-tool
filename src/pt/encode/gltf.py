@@ -2,6 +2,7 @@ import base64
 import math
 import numpy as np
 import os
+import urllib.parse
 
 from argparse import Namespace
 from bisect import bisect_left, bisect_right
@@ -655,6 +656,12 @@ def make_primitives(object: PTActorObject | PTStageObject, nodes: list[Node], an
 				corner_normals.append((nx, ny, nz))
 
 			for nx, ny, nz in corner_normals:
+				# the bone-space bake transforms normals with the bone matrix without
+				# renormalizing (the engine rescales them on the fly); glTF requires
+				# unit-length NORMAL accessors
+				length = math.sqrt(nx*nx + ny*ny + nz*nz)
+				if length > 0:
+					nx, ny, nz = nx / length, ny / length, nz / length
 				prim["normalbuffer"].write((c_float*3)(nx, ny, nz))
 
 			# TEXCOORD_0
@@ -909,19 +916,26 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			skin.joints.append(i)
 			t = bone.transform
 
-			# NOTE: we are swapping Y and Z axes, but also negating Z for some reason
-			# that I do not recall. Will update this note if/when I remember. May just
-			# be a difference between the source data and glTF's expectations.
+			# engine axes -> glTF: (x, y, z) -> (x, z, -y), a proper rotation of the
+			# frame (rotX -90). position conjugates with it: (x, z, -y).
 			position = PTVector3(
 				x =  t.position.x * SCALE_INCH_TO_METER,
 				y =  t.position.z * SCALE_INCH_TO_METER,
 				z = -t.position.y * SCALE_INCH_TO_METER
 			)
 
+			# decompose_rotation reads the engine's row-major rotation block
+			# (v' = v @ R, smObj3d.cpp::TmAnimation) as a column matrix, so its
+			# quaternion is the CONJUGATE of the glTF column-convention rotation
+			# (quat(R^T) == conj(quat(R))). The animation track export cancels the
+			# same inversion with its -qw mapping (get_animation_track:
+			# [qx, qz, -qy, -qw]); the static node must conjugate too or the rest
+			# pose renders inverted and W_rest != inv(IBM) breaks default-pose
+			# skinning (Buma/Aragonian rest pose bug).
 			rotation = PTQuaternion(
-				x =  t.rotation.x,
-				y =  t.rotation.z,
-				z = -t.rotation.y,
+				x = -t.rotation.x,
+				y = -t.rotation.z,
+				z =  t.rotation.y,
 				w =  t.rotation.w
 			)
 
@@ -939,9 +953,14 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				scale = [ scale.x, scale.y, scale.z ]
 			))
 
+			# column-convention local (rotation applied R(q), NOT transposed like
+			# trs_to_np_matrix - the transpose makes the composed inverse the
+			# TRANSPOSE of the node-chain world instead of its inverse, which broke
+			# default-pose skinning in every glTF consumer)
 			np_m = trs_to_np_matrix(position, rotation, scale)
+			np_m[:3, :3] = np_m[:3, :3].T
 			try:
-				np_w = np.linalg.inv(np_m) # lol it's an inverted m ;D
+				np_w = np.linalg.inv(np_m)
 			except np.linalg.LinAlgError:
 				# degenerate helper bones (zero Tm/scale) that no physique references;
 				# the engine inverts them into garbage that is never sampled
@@ -1012,8 +1031,8 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 			else:
 				uri = root + ext
 
-			# '#' in a filename is a URI fragment delimiter (golem#2.png)
-			texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+			# '#' or ' ' in a filename must not leak into the glTF image uri
+			texpath = os.path.join(fs_dir, uri)
 
 			if os.path.isfile(texpath):
 				frames.append(Path(texpath))
@@ -1043,7 +1062,7 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 	# base pose
 	for anim in anim_atlas:
 		gltf.images.append(Image(
-			uri = anim["image"].replace("#", "%23")
+			uri = anim["image"]
 		))
 
 		gltf.textures.append(Texture(
@@ -1120,11 +1139,11 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				else:
 					uri = root + ext
 
-				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+				texpath = os.path.join(fs_dir, uri)
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri.replace("#", "%23")
+						uri = urllib.parse.quote(uri)
 					))
 
 					gltf.textures.append(Texture(
@@ -1169,11 +1188,11 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				else:
 					uri = root + ext
 
-				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+				texpath = os.path.join(fs_dir, uri)
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri.replace("#", "%23")
+						uri = urllib.parse.quote(uri)
 					))
 
 					gltf.textures.append(Texture(
@@ -1223,11 +1242,11 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				else:
 					uri = (root + ext).lower()
 
-				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+				texpath = os.path.join(fs_dir, uri)
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri.replace("#", "%23")
+						uri = urllib.parse.quote(uri)
 					))
 
 					gltf.textures.append(Texture(
@@ -1252,11 +1271,11 @@ def build(model: PTActorModel | PTStageModel, args: Namespace, path: Path) -> GL
 				else:
 					uri = (root + ext).lower()
 
-				texpath = os.path.join(fs_dir, uri.replace("#", "%23"))
+				texpath = os.path.join(fs_dir, uri)
 
 				if os.path.isfile(texpath):
 					gltf.images.append(Image(
-						uri = uri.replace("#", "%23")
+						uri = urllib.parse.quote(uri)
 					))
 
 					gltf.textures.append(Texture(
